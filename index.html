@@ -144,22 +144,67 @@
 
   <!-- 설정 -->
   <div id="tab-settings" style="display:none">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:800px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- 계좌 관리 -->
       <div class="card">
-        <div style="font-weight:600;margin-bottom:12px">계좌 관리</div>
+        <div style="font-weight:600;font-size:15px;margin-bottom:4px">계좌 관리</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px">Shift+Enter로 여러 개 동시 입력</div>
         <div id="wallet-list"></div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <input id="new-wallet" placeholder="새 계좌명" style="flex:1">
-          <button class="btn btn-primary" onclick="addWallet()">추가</button>
+        <div style="margin-top:10px">
+          <textarea id="new-wallet" placeholder="새 계좌명&#10;여러 개는 Shift+Enter로 구분" rows="2"
+            style="width:100%;resize:none;font-family:inherit"
+            onkeydown="handleShiftEnter(event,'wallet')"></textarea>
+          <button class="btn btn-primary" onclick="addWallet()" style="margin-top:6px;width:100%">추가</button>
         </div>
       </div>
+
+      <!-- 계정과목 관리 -->
       <div class="card">
-        <div style="font-weight:600;margin-bottom:12px">1차 계정과목 관리</div>
-        <div id="cat1-list"></div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <input id="new-cat1" placeholder="새 계정과목" style="flex:1">
-          <button class="btn btn-primary" onclick="addCat1()">추가</button>
+        <div style="font-weight:600;font-size:15px;margin-bottom:4px">계정과목 관리</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px">1차 선택 후 2차·3차 입력 / Shift+Enter로 여러 개 동시 입력</div>
+
+        <!-- 1차 추가 -->
+        <div style="background:#f8f8f7;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:500;color:#555;margin-bottom:6px">▸ 1차 계정과목 추가</div>
+          <textarea id="new-cat1" placeholder="매출액&#10;여러 개는 Shift+Enter로 구분" rows="2"
+            style="width:100%;resize:none;font-family:inherit"
+            onkeydown="handleShiftEnter(event,'cat1')"></textarea>
+          <button class="btn btn-primary" onclick="addCat1()" style="margin-top:6px;width:100%">1차 추가</button>
         </div>
+
+        <!-- 2차 추가 -->
+        <div style="background:#f8f8f7;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:500;color:#555;margin-bottom:6px">▸ 2차 계정과목 추가</div>
+          <select id="sel-cat1-for2" style="width:100%;margin-bottom:6px" onchange="update3rdSelect()">
+            <option value="">1차 선택...</option>
+          </select>
+          <textarea id="new-cat2" placeholder="임대매출&#10;세일즈위탁&#10;Shift+Enter로 구분" rows="3"
+            style="width:100%;resize:none;font-family:inherit"
+            onkeydown="handleShiftEnter(event,'cat2')"></textarea>
+          <button class="btn btn-primary" onclick="addCat2()" style="margin-top:6px;width:100%">2차 추가</button>
+        </div>
+
+        <!-- 3차 추가 -->
+        <div style="background:#f8f8f7;border-radius:8px;padding:12px">
+          <div style="font-size:12px;font-weight:500;color:#555;margin-bottom:6px">▸ 3차 계정과목 추가 <span style="color:#aaa;font-weight:400">(선택사항)</span></div>
+          <select id="sel-cat1-for3" style="width:100%;margin-bottom:6px" onchange="update3rdCat2Select()">
+            <option value="">1차 선택...</option>
+          </select>
+          <select id="sel-cat2-for3" style="width:100%;margin-bottom:6px">
+            <option value="">2차 선택...</option>
+          </select>
+          <textarea id="new-cat3" placeholder="직영&#10;위탁&#10;Shift+Enter로 구분" rows="2"
+            style="width:100%;resize:none;font-family:inherit"
+            onkeydown="handleShiftEnter(event,'cat3')"></textarea>
+          <button class="btn btn-primary" onclick="addCat3()" style="margin-top:6px;width:100%">3차 추가</button>
+        </div>
+      </div>
+
+      <!-- 계정과목 전체 목록 -->
+      <div class="card" style="grid-column:span 2">
+        <div style="font-weight:600;font-size:15px;margin-bottom:12px">계정과목 전체 목록</div>
+        <div id="accounts-tree"></div>
       </div>
     </div>
   </div>
@@ -457,29 +502,135 @@ function renderCashflow() {
 }
 
 // ─── 설정 ────────────────────────────────────────────
+// Shift+Enter 핸들러
+function handleShiftEnter(e, type) {
+  if (e.shiftKey && e.key === 'Enter') {
+    e.preventDefault();
+    const el = e.target;
+    const pos = el.selectionStart;
+    el.value = el.value.slice(0,pos) + '\n' + el.value.slice(pos);
+    el.selectionStart = el.selectionEnd = pos + 1;
+  } else if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (type==='wallet') addWallet();
+    else if (type==='cat1') addCat1();
+    else if (type==='cat2') addCat2();
+    else if (type==='cat3') addCat3();
+  }
+}
+
+function getLines(id) {
+  return document.getElementById(id).value.split('\n').map(s=>s.trim()).filter(Boolean);
+}
+
 function renderSettings() {
+  // 계좌 목록
   document.getElementById('wallet-list').innerHTML = wallets.map(w=>`
     <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border:1px solid #e5e5e5;border-radius:6px;margin-bottom:5px">
-      <span>${w}</span>
+      <span style="font-size:13px">${w}</span>
       <button class="btn-sm btn-danger" onclick="delWallet('${w}')">삭제</button>
     </div>`).join('');
-  document.getElementById('cat1-list').innerHTML = Object.keys(accounts).map(c=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border:1px solid #e5e5e5;border-radius:6px;margin-bottom:5px">
-      <span>${c}</span>
-      <button class="btn-sm btn-danger" onclick="delCat1('${c}')">삭제</button>
-    </div>`).join('');
+
+  // 1차 선택박스 갱신
+  const cat1Keys = Object.keys(accounts);
+  ['sel-cat1-for2','sel-cat1-for3'].forEach(id => {
+    const cur = document.getElementById(id).value;
+    document.getElementById(id).innerHTML = `<option value="">1차 선택...</option>`
+      + cat1Keys.map(c=>`<option ${cur===c?'selected':''}>${c}</option>`).join('');
+  });
+  update3rdSelect();
+  update3rdCat2Select();
+
+  // 계정과목 트리
+  document.getElementById('accounts-tree').innerHTML = cat1Keys.length === 0
+    ? '<p style="color:#aaa;font-size:13px">등록된 계정과목이 없습니다.</p>'
+    : cat1Keys.map(c1 => {
+        const sub = accounts[c1]; // {cat2: [cat3...]} or []
+        const isObj = !Array.isArray(sub);
+        let subHtml = '';
+        if (isObj) {
+          subHtml = Object.entries(sub).map(([c2, c3arr])=>`
+            <div style="margin:3px 0 3px 16px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:12px;color:#444">└ ${c2}</span>
+                <button class="btn-sm btn-danger" onclick="delCat2('${c1}','${c2}')">삭제</button>
+              </div>
+              ${(c3arr||[]).map(c3=>`
+                <div style="display:flex;align-items:center;gap:6px;margin-left:20px;margin-top:2px">
+                  <span style="font-size:11px;color:#888">└ ${c3}</span>
+                  <button class="btn-sm btn-danger" onclick="delCat3('${c1}','${c2}','${c3}')">삭제</button>
+                </div>`).join('')}
+            </div>`).join('');
+        } else {
+          subHtml = (sub||[]).map(c2=>`
+            <div style="display:flex;align-items:center;gap:6px;margin:3px 0 3px 16px">
+              <span style="font-size:12px;color:#444">└ ${c2}</span>
+              <button class="btn-sm btn-danger" onclick="delCat2('${c1}','${c2}')">삭제</button>
+            </div>`).join('');
+        }
+        return `<div style="margin-bottom:10px;padding:10px;border:1px solid #e5e5e5;border-radius:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-weight:600;font-size:13px">${c1}</span>
+            <button class="btn-sm btn-danger" onclick="delCat1('${c1}')">삭제</button>
+          </div>
+          ${subHtml}
+        </div>`;
+      }).join('');
+}
+
+function update3rdSelect() {
+  const c1 = document.getElementById('sel-cat1-for2').value;
+  // 2차 목록은 accounts[c1] 키들
+}
+function update3rdCat2Select() {
+  const c1 = document.getElementById('sel-cat1-for3').value;
+  const sub = c1 ? accounts[c1] : null;
+  let opts = [];
+  if (sub) {
+    opts = Array.isArray(sub) ? sub : Object.keys(sub);
+  }
+  document.getElementById('sel-cat2-for3').innerHTML = `<option value="">2차 선택...</option>`
+    + opts.map(c=>`<option>${c}</option>`).join('');
 }
 
 function addWallet() {
-  const v = document.getElementById('new-wallet').value.trim();
-  if (v && !wallets.includes(v)) { wallets.push(v); save(); renderSettings(); document.getElementById('new-wallet').value=''; }
+  getLines('new-wallet').forEach(v => { if (v && !wallets.includes(v)) wallets.push(v); });
+  save(); renderSettings(); document.getElementById('new-wallet').value='';
 }
 function delWallet(w) { wallets = wallets.filter(x=>x!==w); save(); renderSettings(); }
+
 function addCat1() {
-  const v = document.getElementById('new-cat1').value.trim();
-  if (v && !accounts[v]) { accounts[v]=[]; save(); renderSettings(); document.getElementById('new-cat1').value=''; }
+  getLines('new-cat1').forEach(v => { if (v && !accounts[v]) accounts[v]={}; });
+  save(); renderSettings(); document.getElementById('new-cat1').value='';
 }
 function delCat1(c) { delete accounts[c]; save(); renderSettings(); }
+
+function addCat2() {
+  const c1 = document.getElementById('sel-cat1-for2').value;
+  if (!c1) { alert('1차 계정과목을 선택하세요'); return; }
+  if (Array.isArray(accounts[c1])) accounts[c1] = {};
+  getLines('new-cat2').forEach(v => { if (v && !accounts[c1][v]) accounts[c1][v]=[]; });
+  save(); renderSettings(); document.getElementById('new-cat2').value='';
+}
+function delCat2(c1, c2) {
+  if (Array.isArray(accounts[c1])) accounts[c1] = accounts[c1].filter(x=>x!==c2);
+  else delete accounts[c1][c2];
+  save(); renderSettings();
+}
+
+function addCat3() {
+  const c1 = document.getElementById('sel-cat1-for3').value;
+  const c2 = document.getElementById('sel-cat2-for3').value;
+  if (!c1||!c2) { alert('1차와 2차를 선택하세요'); return; }
+  if (Array.isArray(accounts[c1])) accounts[c1]={};
+  if (!accounts[c1][c2]) accounts[c1][c2]=[];
+  getLines('new-cat3').forEach(v => { if (v && !accounts[c1][c2].includes(v)) accounts[c1][c2].push(v); });
+  save(); renderSettings(); document.getElementById('new-cat3').value='';
+}
+function delCat3(c1,c2,c3) {
+  accounts[c1][c2] = (accounts[c1][c2]||[]).filter(x=>x!==c3);
+  save(); renderSettings();
+}
 
 // ─── 폼 ──────────────────────────────────────────────
 function populateSelect(id, opts, val) {
