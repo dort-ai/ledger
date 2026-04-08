@@ -184,7 +184,6 @@ td.gcell.range-sel{background:#c8daf8 !important}
       <div class="grid-wrap">
         <div class="grid-scroll" id="gscroll" tabindex="0"
           onkeydown="onGridKey(event)"
-          onpaste="onPaste(event)"
           onclick="onGridClick(event)"
           ondblclick="onGridDblClick(event)"
           onmousedown="onGridMouseDown(event)">
@@ -614,11 +613,12 @@ function scrollToCell(td){
 // ══════════════════════════════════════════════════════════
 // 편집 시작/완료/취소
 // ══════════════════════════════════════════════════════════
-function startEditCell(ri,ci,clearContent=false){
+function startEditCell(ri,ci,clearContent=false,initChar=''){
   if(ri<0||ri>=filtered.length)return;
   const r=filtered[ri];const col=COLS[ci];
   editOrigVal=col.t==='num'?fmt(num(r[col.k])):r[col.k]||'';
-  editBuf=clearContent?'':editOrigVal;
+  // clearContent=true면 initChar(첫 타이핑 문자)를 사용, 없으면 ''
+  editBuf=clearContent?(initChar||''):editOrigVal;
   MODE='edit';
   // 해당 td를 편집 모드로 교체
   const td=getTd(ri,ci);
@@ -631,8 +631,14 @@ function startEditCell(ri,ci,clearContent=false){
   td.appendChild(inp);editInp=inp;
   bindEditInp(inp);
   inp.focus();
-  if(clearContent)inp.setSelectionRange(0,0);
-  else{inp.select();}
+  if(clearContent&&initChar){
+    inp.value=initChar;
+    inp.setSelectionRange(initChar.length,initChar.length);
+  }else if(clearContent){
+    inp.value='';
+  }else{
+    inp.select();
+  }
   scrollToCell(td);
   updStatus();
   // 콤보 드롭다운
@@ -675,13 +681,22 @@ function commitEdit(moveDown=false){
   MODE='nav';editInp=null;editBuf='';
   if(col.k==='date'||col.k==='month'){
     renderGrid();
-    setTimeout(()=>{if(moveDown)navTo(GR+1,GC);else navTo(GR,GC);},10);
+    setTimeout(()=>{
+      if(moveDown)navTo(GR+1,GC);else navTo(GR,GC);
+      document.getElementById('gscroll').focus();
+    },10);
   }else{
     patchRowDOM(r,GR);
     const td=getTd(GR,GC);
     if(td){td.classList.remove('editing');td.classList.add('nav-sel');}
     updSummaryOnly();
-    if(moveDown)navTo(GR+1,GC);else{updStatus();}
+    if(moveDown){
+      navTo(GR+1,GC);
+    }else{
+      updStatus();
+    }
+    // 포커스 유지 — 엑셀처럼 Enter 후 바로 타이핑 가능
+    setTimeout(()=>document.getElementById('gscroll').focus(),10);
   }
 }
 
@@ -758,11 +773,10 @@ function onGridKey(e){
   if(e.key==='F2'){e.preventDefault();startEditCell(GR,GC,false);return;}
   if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();clearCell();return;}
   if(e.key==='Escape'){return;}
-  // 일반 타이핑 → 편집 모드 (기존 내용 교체)
+  // 일반 타이핑 → 편집 모드 (기존 내용 교체, 첫 글자 전달)
   if(e.key.length===1&&!ctrl&&!e.altKey){
     e.preventDefault();
-    editBuf=e.key;
-    startEditCell(GR,GC,true);
+    startEditCell(GR,GC,true,e.key);
     return;
   }
 }
@@ -845,20 +859,52 @@ function clearCell(){
   r[col.k]='';save();patchRowDOM(r,GR);updSummaryOnly();
 }
 
-// 엑셀 표 붙여넣기
-function onPaste(e){
+// 엑셀 표 붙여넣기 — document 레벨 전역 처리
+function globalPaste(e){
+  // 모달이 열려있으면 무시
+  if(document.querySelector('.ov.show'))return;
+  // 거래내역 탭이 아니면 무시
+  if(curTab!=='ledger'||!curCo||curCo==='__all__')return;
+
   const txt=e.clipboardData.getData('text/plain');
-  if(!txt||!txt.includes('\t'))return;
+  if(!txt)return;
+
+  // \r\n, \r 정규화
+  const normalized=txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const lines=normalized.split('\n');
+  // 마지막 빈 줄 제거
+  if(lines[lines.length-1].trim()==='')lines.pop();
+
+  // 탭이 없는 단일 값 → 현재 셀에 붙여넣기
+  if(lines.length===1&&!lines[0].includes('\t')){
+    if(GR<0||GC<0)return;
+    e.preventDefault();
+    const r=filtered[GR];const col=COLS[GC];if(!r||!col)return;
+    const v=lines[0].trim();
+    undoStack.push({id:r.id,k:col.k,old:r[col.k],cur:v});
+    if(col.t==='num')r[col.k]=String(num(v)||0);else r[col.k]=v;
+    if(col.k==='date'){const m=v.match(/(\d{2,4})[.\-\/](\d{2})/);if(m)r.month=(m[1].length===4?m[1].slice(2):m[1])+'년 '+m[2]+'월';}
+    save();patchRowDOM(r,GR);updSummaryOnly();
+    setTimeout(()=>document.getElementById('gscroll').focus(),10);
+    return;
+  }
+
+  // 탭 구분 다중 셀 붙여넣기
+  if(!normalized.includes('\t'))return;
   e.preventDefault();
-  const lines=txt.split('\n').filter(l=>l.trim());
-  const rows=lines.map(l=>l.split('\t').map(v=>v.trim().replace(/\r/,'')));
+
+  const rows=lines.map(l=>l.split('\t').map(v=>v.trim()));
   const firstRow=rows[0];
   const knownH=['거래일시','기재내용','지급(원)','입금(원)','계좌','대분류','중분류','소분류','소속','비고','거래월'];
-  const isHeader=firstRow.some(h=>knownH.includes(h));
+  const isHeader=firstRow.length>1&&firstRow.some(h=>knownH.includes(h));
   const dataRows=isHeader?rows.slice(1):rows;
   const headers=isHeader?firstRow:null;
-  let insertAt=GR>=0?GR:filtered.length;
+
+  // 현재 선택 행부터 삽입 or 끝에 추가
+  let insertAt=GR>=0?ST.rows.findIndex(r=>r.id===filtered[GR]?.id):ST.rows.length;
+  if(insertAt<0)insertAt=ST.rows.length;
   let added=0;
+
   dataRows.forEach(cells=>{
     if(cells.every(c=>!c))return;
     const r={id:uid(),companyId:curCo,date:'',month:'',desc:'',income:'0',expense:'0',cat1:'',cat2:'',cat3:'',cat4:'',note:'',wallet:''};
@@ -866,20 +912,29 @@ function onPaste(e){
       headers.forEach((h,i)=>{
         const v=cells[i]||'';
         if(h==='거래일시')r.date=v; else if(h==='거래월')r.month=v;
-        else if(h==='기재내용')r.desc=v; else if(h==='입금(원)'||h==='입금')r.income=String(num(v)||0);
-        else if(h==='지급(원)'||h==='지급')r.expense=String(num(v)||0); else if(h==='대분류')r.cat1=v;
-        else if(h==='중분류')r.cat2=v; else if(h==='소분류')r.cat3=v;
-        else if(h==='소속')r.cat4=v; else if(h==='비고')r.note=v; else if(h==='계좌')r.wallet=v;
+        else if(h==='기재내용')r.desc=v;
+        else if(h==='입금(원)'||h==='입금')r.income=String(num(v)||0);
+        else if(h==='지급(원)'||h==='지급')r.expense=String(num(v)||0);
+        else if(h==='대분류')r.cat1=v; else if(h==='중분류')r.cat2=v;
+        else if(h==='소분류')r.cat3=v; else if(h==='소속')r.cat4=v;
+        else if(h==='비고')r.note=v; else if(h==='계좌')r.wallet=v;
       });
     }else{
-      const order=['month','date','desc','income','expense','cat1','cat2','cat3','cat4','note','wallet'];
-      cells.forEach((v,i)=>{if(order[i])r[order[i]]=(['income','expense'].includes(order[i]))?String(num(v)||0):v;});
+      // 헤더 없으면 현재 선택 컬럼부터 오른쪽으로 채움
+      const startCI=GC>=0?GC:0;
+      cells.forEach((v,i)=>{
+        const col=COLS[startCI+i];
+        if(!col)return;
+        if(col.t==='num')r[col.k]=String(num(v)||0);else r[col.k]=v;
+      });
     }
     if(r.date&&!r.month){const m=r.date.match(/(\d{2,4})[.\-\/](\d{2})/);if(m)r.month=(m[1].length===4?m[1].slice(2):m[1])+'년 '+m[2]+'월';}
     ST.rows.splice(insertAt++,0,r);added++;
   });
   save();renderGrid();
+  setTimeout(()=>document.getElementById('gscroll').focus(),20);
 }
+document.addEventListener('paste',globalPaste);
 
 // ══════════════════════════════════════════════════════════
 // 드롭다운
