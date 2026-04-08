@@ -353,7 +353,7 @@ const COLS = [
   {k:'cat3',  lbl:'소분류',  w:80,  t:'combo', combo:'cat3', filter:'none'},
   {k:'cat4',  lbl:'소속',    w:72,  t:'combo', combo:'cat4', filter:'none'},
   {k:'note',  lbl:'비고',    w:120, t:'text',  filter:'text'},
-  {k:'_act',  lbl:'',        w:50,  t:'act'},
+  {k:'_act',  lbl:'',        w:110, t:'act'},
 ];
 const DATA_COLS = COLS.filter(c=>c.t!=='chk'&&c.t!=='act');
 const EDITABLE_COLS = DATA_COLS.filter(c=>!LOCKED_COLS.has(c.k));
@@ -530,8 +530,8 @@ function renderLedger(){
           td.innerHTML=`<input type="checkbox" class="row-chk" data-id="${r.id}" style="width:auto" onchange="updSelInfo()">`;
         } else if(col.t==='act'){
           if(!isAll){
-            td.style.cssText=`padding:0 3px;width:${col.w}px`;
-            td.innerHTML=`<button class="btn-sm btn-d" onclick="delRow('${r.id}')">삭제</button>`;
+            td.style.cssText=`padding:0 3px;width:${col.w}px;display:flex;flex-wrap:wrap;gap:1px;align-items:center`;
+            td.innerHTML=`<button class="btn-sm" onclick="openEditModal('${r.id}')">수정</button><button class="btn-sm btn-d" onclick="delRow('${r.id}')">삭제</button>${!isChild?`<button class="btn-sm" onclick="addSplitRow('${r.id}')" title="분할">✂</button>`:''}`;
           }
         } else if(col.t==='ro'||LOCKED_COLS.has(col.k)){
           // 잠금 필드 - 읽기 전용 표시
@@ -550,27 +550,8 @@ function renderLedger(){
         tr.appendChild(td);
       });
 
-      // 분할 불일치 표시
-      if(isChild){
-        const ok=splitSumOk(r.splitParent);
-        if(!ok){
-          const warn=document.createElement('td');
-          warn.colSpan=0;
-          // 경고를 행 색상으로 표시
-          tr.style.outline='2px solid #f5a623';
-        }
-      }
+      if(isChild&&!splitSumOk(r.splitParent)) tr.style.outline='2px solid #f5a623';
       frag.appendChild(tr);
-
-      // 수정 버튼은 _act 셀에 추가
-      if(!isAll){
-        const actTd=tr.querySelector('td:last-child');
-        if(actTd&&col){
-          // 이미 삭제버튼 있음, 수정 버튼 추가
-          actTd.innerHTML+=`<button class="btn-sm" onclick="openEditModal('${r.id}')" style="margin-top:1px">수정</button>`;
-          if(!isChild) actTd.innerHTML+=`<button class="btn-sm" onclick="addSplitRow('${r.id}')" title="분할기재 추가" style="margin-top:1px">✂</button>`;
-        }
-      }
     });
   }
   const tbody=document.getElementById('t-body');tbody.innerHTML='';tbody.appendChild(frag);
