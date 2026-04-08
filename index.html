@@ -533,6 +533,7 @@ function renderLedger(){
           // 마우스 이벤트 (이벤트 위임 대신 직접)
           td.addEventListener('mousedown', e=>onTdDown(e,ri,ci));
           td.addEventListener('mousemove', e=>onTdMove(e,ri,ci));
+          td.addEventListener('dblclick', e=>{e.preventDefault();startEdit(ri,ci,false);});
         }
         tr.appendChild(td);
       });
@@ -602,12 +603,15 @@ function startEdit(ri, ci, clearVal=false){
   inp.focus();
   if(!clearVal) inp.select(); else inp.setSelectionRange(curVal.length,curVal.length);
 
-  // 드롭다운
+  // 드롭다운 (setTimeout으로 DOM 레이아웃 완료 후 위치 계산)
   if(col.t==='combo'){
-    showDrop(inp, getComboOpts(col.combo,r,curCo), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
+    setTimeout(()=>{
+      if(!editInp||editInp!==inp)return;
+      showDrop(inp, getComboOpts(col.combo,r,curCo), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
+    },0);
     inp.addEventListener('input', ()=>{
       const q=inp.value.toLowerCase();
-      showDrop(inp, getComboOpts(col.combo,r,curCo).filter(o=>o.toLowerCase().includes(q)), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
+      showDrop(inp, getComboOpts(col.combo,r,curCo).filter(o=>!q||o.toLowerCase().includes(q)), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
     });
   }
   inp.addEventListener('keydown', editKD);
@@ -686,10 +690,10 @@ function editKD(e){
   if(e.key==='Enter'){e.preventDefault();const nr=editR+1;commitEdit();moveAnchor(1,0,false);if(isEditable(selAnchor.c))startEdit(selAnchor.r,selAnchor.c);return;}
   if(e.key==='Tab'){e.preventDefault();const d=e.shiftKey?-1:1;commitEdit();moveAnchorEditable(0,d);startEdit(selAnchor.r,selAnchor.c);return;}
   if(e.key==='Escape'){e.preventDefault();cancelEdit();return;}
-  if(e.key==='ArrowDown'&&!dropOpen){e.preventDefault();commitEdit();moveAnchor(1,0,false);return;}
-  if(e.key==='ArrowUp'&&!dropOpen){e.preventDefault();commitEdit();moveAnchor(-1,0,false);return;}
-  if(e.key==='ArrowLeft'&&!dropOpen&&editInp.selectionStart===0&&editInp.selectionEnd===0){e.preventDefault();commitEdit();moveAnchor(0,-1,false);return;}
-  if(e.key==='ArrowRight'&&!dropOpen&&editInp.selectionStart===editInp.value.length){e.preventDefault();commitEdit();moveAnchor(0,1,false);return;}
+  if(e.key==='ArrowDown'&&!dropOpen){e.preventDefault();e.stopPropagation();commitEdit();moveAnchor(1,0,false);return;}
+  if(e.key==='ArrowUp'&&!dropOpen){e.preventDefault();e.stopPropagation();commitEdit();moveAnchor(-1,0,false);return;}
+  if(e.key==='ArrowLeft'&&!dropOpen&&editInp.selectionStart===0&&editInp.selectionEnd===0){e.preventDefault();e.stopPropagation();commitEdit();moveAnchor(0,-1,false);return;}
+  if(e.key==='ArrowRight'&&!dropOpen&&editInp.selectionStart===editInp.value.length){e.preventDefault();e.stopPropagation();commitEdit();moveAnchor(0,1,false);return;}
 }
 
 // ══════════════════════════════════════════════
@@ -710,10 +714,10 @@ function gridKD(e){
     if(e.key==='d'){e.preventDefault();fillDown();return;}
   }
   // 방향키 이동
-  if(e.key==='ArrowDown'){e.preventDefault();moveAnchor(1,0,e.shiftKey);return;}
-  if(e.key==='ArrowUp'){e.preventDefault();moveAnchor(-1,0,e.shiftKey);return;}
-  if(e.key==='ArrowRight'){e.preventDefault();moveAnchor(0,1,e.shiftKey);return;}
-  if(e.key==='ArrowLeft'){e.preventDefault();moveAnchor(0,-1,e.shiftKey);return;}
+  if(e.key==='ArrowDown'){e.preventDefault();e.stopPropagation();moveAnchor(1,0,e.shiftKey);return;}
+  if(e.key==='ArrowUp'){e.preventDefault();e.stopPropagation();moveAnchor(-1,0,e.shiftKey);return;}
+  if(e.key==='ArrowRight'){e.preventDefault();e.stopPropagation();moveAnchor(0,1,e.shiftKey);return;}
+  if(e.key==='ArrowLeft'){e.preventDefault();e.stopPropagation();moveAnchor(0,-1,e.shiftKey);return;}
   // Enter / F2
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();startEdit(selAnchor.r,selAnchor.c);return;}
   if(e.key==='F2'){e.preventDefault();startEdit(selAnchor.r,selAnchor.c,false);return;}
