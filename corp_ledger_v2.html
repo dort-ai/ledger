@@ -1420,8 +1420,15 @@ function renderSidebar(){
 function selectCo(id){
   curCo=id; renderSidebar(); filters={}; selAnchor={r:0,c:0}; selFocus={r:0,c:0};
   // 기간 초기값: 현재 연도 (월은 전체)
-  periodYear=String(new Date().getFullYear());
-  periodMonth='';
+   const _allMonths=getRows(id).map(r=>r.month).filter(Boolean).sort();
+  if(_allMonths.length){
+    const _latest=_allMonths[_allMonths.length-1];
+    const _ym=_latest.match(/(\d{2})년/);
+    periodYear=_ym?'20'+_ym[1]:String(new Date().getFullYear());
+    periodMonth=_latest;
+  }else{
+    periodYear=String(new Date().getFullYear());
+    periodMonth='';
   const isAll=id==='__all__'; const c=isAll?null:getCo(id);
   document.getElementById('no-co').style.display='none';
   document.getElementById('content-area').style.display='';
