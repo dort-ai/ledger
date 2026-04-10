@@ -394,6 +394,7 @@ const auth = firebase.auth();
 const db   = firebase.firestore();
 let currentUser = null;
 let _saveTimer  = null;
+let _dirtyRows  = new Set(); // 변경된 행 ID 추적
 
 // ══════════════════════════════════════════════
 // 컬럼 정의
@@ -467,9 +468,12 @@ let selColor=COLORS[0];
 // ══════════════════════════════════════════════
 // 유틸
 // ══════════════════════════════════════════════
-function save(){
+function save(dirtyIds){
   localStorage.setItem('ledger_v6',JSON.stringify(ST));
   if(!currentUser) return;
+  // 변경된 행 ID 누적
+  if(dirtyIds) dirtyIds.forEach(id=>_dirtyRows.add(id));
+  else ST.rows.forEach(r=>_dirtyRows.add(r.id)); // ID 없이 호출 시 전체 마킹
   clearTimeout(_saveTimer);
   setSyncStatus('저장 중...');
   _saveTimer = setTimeout(saveToFirestore, 1500);
@@ -484,7 +488,7 @@ async function saveToFirestore(){
   if(!currentUser) return;
   const uid=currentUser.uid;
   try{
-    // meta 저장
+    // meta 저장 (항상)
     await db.doc(`users/${uid}/meta`).set({
       companies:   ST.companies||[],
       learnRules:  ST.fixedRules||[],
@@ -493,15 +497,16 @@ async function saveToFirestore(){
       wallets:     ST.wallets||{},
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
-    // rows 저장 (400개씩 청크 - Firestore batch 한도 500 대응)
-    const rows=ST.rows||[];
+    // 변경된 행만 저장
+    const dirtyList=ST.rows.filter(r=>_dirtyRows.has(r.id));
     const chunks=[];
-    for(let i=0;i<rows.length;i+=400) chunks.push(rows.slice(i,i+400));
+    for(let i=0;i<dirtyList.length;i+=400) chunks.push(dirtyList.slice(i,i+400));
     for(const chunk of chunks){
       const batch=db.batch();
       chunk.forEach(r=>batch.set(db.doc(`users/${uid}/rows/${r.id}`),r));
       await batch.commit();
     }
+    _dirtyRows.clear();
     setSyncStatus('✓ 저장됨');
     setTimeout(()=>setSyncStatus(''),3000);
   }catch(e){
@@ -988,7 +993,7 @@ function commitEdit(silent=false){
       if(!r.cat1){const c1=cat1FromCat2(r.companyId,r.cat2);if(c1){r.cat1=c1;const cat1CI=DC.findIndex(d=>d.k==='cat1');const cat1Td=getTd(editR,cat1CI);if(cat1Td)cat1Td.innerHTML=`<div class="cv locked">${c1}</div>`;}}
       if(r.cat1){const c2=cat2FromCat3(r.companyId,r.cat1,val);if(c2)r.cat2=c2;}
     }
-    save();
+    save([id]);
     // 분할 자식 행 편집 시 부모 합계 갱신
     if(r.splitParent&&(ck==='income'||ck==='expense'))refreshParentSplit(r.splitParent);
     // 셀 값 복원
@@ -1295,7 +1300,7 @@ document.addEventListener('mousedown',e=>{if(!e.target.closest('#fdrop')&&!e.tar
 // ══════════════════════════════════════════════
 function addRow(){
   const r={id:uid(),companyId:curCo,date:'',month:'',desc:'',income:'0',expense:'0',cat1:'',cat2:'',cat3:'',cat4:'',note:'',wallet:''};
-  ST.rows.push(r); save(); renderLedger();
+  ST.rows.push(r); save([r.id]); renderLedger();
   const ri=_rows.length-1;
   selAnchor={r:ri,c:0}; selFocus={r:ri,c:0};
   updateHL();
@@ -1308,7 +1313,7 @@ function addSplitRow(parentId){
   const nr={id:uid(),companyId:parent.companyId,date:parent.date,month:parent.month,desc:parent.desc,wallet:parent.wallet,income:'0',expense:'0',cat1:'',cat2:'',cat3:'',cat4:'',note:'',splitGroup:parent.splitGroup,splitParent:parentId};
   const idx=ST.rows.findIndex(r=>r.id===parentId);
   let ins=idx+1; while(ins<ST.rows.length&&ST.rows[ins].splitParent===parentId)ins++;
-  ST.rows.splice(ins,0,nr); save(); renderLedger();
+  ST.rows.splice(ins,0,nr); save([parentId, nr.id]); renderLedger();
   const ri=_rows.findIndex(r=>r.id===nr.id);
   if(ri>=0){selAnchor={r:ri,c:DC.findIndex(d=>d.k==='cat1')};selFocus={...selAnchor};updateHL();}
 }
@@ -1398,7 +1403,7 @@ function saveEditModal(){
   r.expense=String(num(document.getElementById('em-expense').value)||0);
   r.wallet=document.getElementById('em-wallet').value;
   if(r.date){const m=r.date.match(/(\d{2,4})[.\-\/](\d{2})/);if(m)r.month=(m[1].length===4?m[1].slice(2):m[1])+'년 '+m[2]+'월';}
-  save(); closeOv('edit-modal'); renderLedger();
+  save([editModalRowId]); closeOv('edit-modal'); renderLedger();
 }
 
 // ══════════════════════════════════════════════
