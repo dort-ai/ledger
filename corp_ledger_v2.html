@@ -889,7 +889,7 @@ function renderLedger(){
     if(col.t==='act')return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl"></div><div class="th-f"></div></div></th>`;
     let fh='';
     if(col.filter==='select'){const opts=selectOptsMap[col.k]||[];const fv=filters[col.k]||'';fh=`<select onchange="setF('${col.k}',this.value)"><option value="">전체</option><option value="__empty__" ${fv==='__empty__'?'selected':''}>비어있음</option>${opts.map(o=>`<option ${fv===o?'selected':''}>${o}</option>`).join('')}</select>`;}
-    else if(col.filter==='text'){fh=`<input type="text" value="${filters[col.k]||''}" placeholder="검색" oninput="setF('${col.k}',this.value)">`;}
+    else if(col.filter==='text'){fh=`<input type="text" data-fk="${col.k}" value="${filters[col.k]||''}" placeholder="검색" oninput="if(!event.isComposing)setF('${col.k}',this.value,this)" oncompositionend="setF('${col.k}',this.value,this)">`;}
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
   }).join('')}</tr>`;
@@ -1437,7 +1437,15 @@ function delRow(id){
   renderLedger();
   updateMonthsInFirestore(affected);
 }
-function setF(k,v){filters[k]=v; commitEdit(true); renderLedger();}
+function setF(k,v,el){
+  filters[k]=v; commitEdit(true);
+  const selStart=el&&el.selectionStart, selEnd=el&&el.selectionEnd;
+  renderLedger();
+  if(el){
+    const restored=document.querySelector('.th-f input[data-fk="'+k+'"]');
+    if(restored){restored.focus();try{restored.setSelectionRange(selStart,selEnd);}catch(e){}}
+  }
+}
 function filterUncat(){
   // 중분류 미작성 필터 토글
   if(filters.cat2==='__empty__'){filters.cat2='';}
@@ -1693,6 +1701,7 @@ function delLearnUpload(id){ST.learnUploads=(ST.learnUploads||[]).filter(u=>u.id
 const CARD_PURPOSE_MAP=[
   {kw:'식대',       cat2:'복리후생비', cat3:'식대'},
   {kw:'CX소모품비',  cat2:'지점소모품', cat3:''},
+  {kw:'CX 소모품비', cat2:'지점소모품', cat3:''},
   {kw:'MRT비용',    cat2:'마케팅비용', cat3:''},
   {kw:'광고비',     cat2:'마케팅비용', cat3:'광고비'},
   {kw:'도서인쇄비',  cat2:'교육훈련비', cat3:''},
@@ -1894,7 +1903,11 @@ function confirmImport(){
       const date=String(r['사용일시']||'').trim(),amount=num(r['사용금액']||0),purpose=String(r['용도']||'').trim(),note=String(r['내용']||'').trim();
       if(!date&&!amount)return;
       const dk=normDate(date);
-      const mr=ST.rows.find(row=>row.companyId===cid&&normDate(row.date)===dk&&num(row.expense)===amount&&!row._cm);
+      const absAmt=Math.abs(amount);
+      const isRefund=amount<0;
+      const mr=isRefund
+        ? ST.rows.find(row=>row.companyId===cid&&normDate(row.date)===dk&&num(row.income)===absAmt&&!row._cm)
+        : ST.rows.find(row=>row.companyId===cid&&normDate(row.date)===dk&&num(row.expense)===absAmt&&!row._cm);
       if(mr){
         if(purpose){const res=resolveCardPurpose(purpose,cid);mr.cat2=res.cat2;if(res.cat1)mr.cat1=res.cat1;if(res.cat3)mr.cat3=res.cat3;}
         mr.note=note||mr.note;
