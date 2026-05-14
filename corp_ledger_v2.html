@@ -2058,12 +2058,15 @@ function matchSplitRows(uploadedRows){
     } else {
       // 매칭 실패 원인 진단
       const byDate=ledger.filter(r=>normD(r.date)===dk);
+      const byDateAmt=byDate.filter(r=>num(r.expense)===total||num(r.expense)===u.amount);
       let reason;
       if(!byDate.length) reason='날짜 없음 ('+u.date+')';
       else if(wallet&&byDate.every(r=>r.wallet&&r.wallet!==wallet)) reason='계좌 불일치 ('+wallet+' 없음)';
-      else if(byDate.every(r=>num(r.expense)!==total&&num(r.expense)!==u.amount)) reason='금액 불일치 ('+total.toLocaleString()+'원 없음)';
+      else if(!byDateAmt.length) reason='금액 불일치 ('+total.toLocaleString()+'원 없음)';
       else reason='기재내용 불일치';
-      unmatched.push({...u,total,wallet,reason});
+      // 진단: 같은 날짜+금액인 가계부 후보 기재내용
+      const candidateDescs=byDateAmt.map(r=>r.desc||'').slice(0,3);
+      unmatched.push({...u,total,wallet,reason,uDescRaw:u.desc,uDescNorm:uDesc,candidateDescs});
     }
   }
   return {proposals,unmatched};
@@ -2106,22 +2109,25 @@ function showSplitPreview(proposals,unmatched){
 
   // ── 미매칭 목록
   if(unmatched.length){
-    h+='<div style="font-size:11px;color:#b45309;background:#fff8e6;border-radius:6px;padding:7px 12px;flex-shrink:0;">❌ 미매칭 항목: 가계부에서 해당 행을 찾지 못했습니다. 원인을 확인하세요.</div>';
-    h+='<div style="overflow-y:auto;max-height:200px;border:1px solid #f0d9b5;border-radius:6px;flex-shrink:0;">';
-    h+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    h+='<div style="font-size:11px;color:#b45309;background:#fff8e6;border-radius:6px;padding:7px 12px;flex-shrink:0;">❌ 미매칭 항목 — 원인 및 비교값을 확인하세요 (Excel 통장표시 vs 가계부 기재내용)</div>';
+    h+='<div style="overflow-y:auto;max-height:240px;border:1px solid #f0d9b5;border-radius:6px;flex-shrink:0;">';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
     h+='<thead style="background:#fffbf0;"><tr>';
-    ['이체일시','계좌번호','이체금액+수수료','수수료','통장표시','❌ 실패 원인'].forEach(t=>
+    ['이체일시','수수료','❌ 실패 원인','Excel 통장표시 (파싱값)','가계부 후보 기재내용'].forEach(t=>
       h+='<th style="padding:7px 8px;border-bottom:1px solid #f0d9b5;text-align:left;position:sticky;top:0;background:#fffbf0;white-space:nowrap;">'+t+'</th>'
     );
     h+='</tr></thead><tbody>';
     unmatched.forEach((u,i)=>{
+      const excelVal=u.uDescRaw?'<span style="background:#fef9c3;padding:1px 4px;border-radius:3px;">'+u.uDescRaw+'</span>':'<span style="color:#c0392b;font-style:italic;">비어있음 ⚠️</span>';
+      const ledgerVal=u.candidateDescs&&u.candidateDescs.length
+        ? u.candidateDescs.map(d=>'<span style="background:#e0f2fe;padding:1px 4px;border-radius:3px;">'+d+'</span>').join(' ')
+        : '<span style="color:#aaa;">해당 날짜+금액 행 없음</span>';
       h+='<tr style="border-bottom:1px solid #fef3e0;background:'+(i%2?'#fffdf5':'#fff')+'">';
       h+='<td style="padding:6px 8px;white-space:nowrap;">'+u.date+'</td>';
-      h+='<td style="padding:6px 8px;font-size:11px;color:#666;">'+u.acctNo+'<br><span style="color:#b45309">'+(u.wallet||'계좌 미등록')+'</span></td>';
-      h+='<td style="padding:6px 8px;text-align:right;">'+Number(u.total).toLocaleString()+'원</td>';
       h+='<td style="padding:6px 8px;text-align:right;color:#2563eb;">'+Number(u.fee).toLocaleString()+'원</td>';
-      h+='<td style="padding:6px 8px;">'+u.desc+'</td>';
-      h+='<td style="padding:6px 8px;color:#c0392b;font-weight:600;">'+u.reason+'</td>';
+      h+='<td style="padding:6px 8px;color:#c0392b;font-weight:600;white-space:nowrap;">'+u.reason+'</td>';
+      h+='<td style="padding:6px 8px;">'+excelVal+'</td>';
+      h+='<td style="padding:6px 8px;">'+ledgerVal+'</td>';
       h+='</tr>';
     });
     h+='</tbody></table></div>';
