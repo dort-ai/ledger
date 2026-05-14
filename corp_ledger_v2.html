@@ -195,6 +195,7 @@ td.copy-flash{background:#c8f0c8!important}
           <button class="btn" onclick="addRow()" id="btn-add">+ 행 추가</button>
           <button class="btn" onclick="backupData()" id="btn-backup" title="전체 데이터를 JSON으로 백업" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;">💾 백업</button>
           <button class="btn" onclick="exportExcel()" id="btn-export">📥 내보내기</button>
+          <button class="btn" onclick="openBulkEdit()" id="btn-bulk" style="background:#fff7ed;border-color:#fed7aa;color:#c2410c;">📝 일괄등록</button>
           <button class="btn" onclick="runFixedRules()" id="btn-rules" style="background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;">📋 고정규칙 분류</button>
           <button class="btn ai-btn" onclick="openAI()" id="btn-ai">🤖 AI 분류</button>
           <button class="btn" onclick="openAutoSplit()" id="btn-split" style="background:#f0f7ff;border-color:#bfdbfe;color:#1d4ed8;">✂ 자동분할</button>
@@ -381,6 +382,48 @@ td.copy-flash{background:#c8f0c8!important}
       </label>
     </div>
     <div id="split-status" style="font-size:11px;min-height:18px;color:#555"></div>
+  </div>
+</div>
+
+<!-- 일괄등록 모달 -->
+<div class="overlay" id="bulk-ov" onclick="bgClose(event,'bulk-ov')">
+  <div class="modal" style="max-width:900px;width:92vw">
+    <div class="modal-hd"><span class="modal-title">📝 일괄 등록</span><button class="close-btn" onclick="closeOv('bulk-ov')">×</button></div>
+    <!-- 분류 선택 -->
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px 12px;background:#f8f8f7;border-radius:7px;margin-bottom:10px">
+      <div style="flex:1;min-width:150px">
+        <div style="font-size:11px;color:#888;margin-bottom:3px">기재내용 검색</div>
+        <input type="text" id="bulk-filter" placeholder="키워드..." oninput="renderBulkList()" style="width:100%;box-sizing:border-box">
+      </div>
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:3px">대분류 <span style="color:#c0392b">*</span></div>
+        <select id="bulk-cat1" onchange="upBulkCat2()" style="min-width:110px"><option value="">선택...</option></select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:3px">중분류</div>
+        <select id="bulk-cat2" onchange="upBulkCat3()" style="min-width:120px"><option value="">선택...</option></select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:3px">소분류</div>
+        <select id="bulk-cat3" style="min-width:100px"><option value="">선택...</option></select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:3px">소속</div>
+        <select id="bulk-cat4" style="min-width:90px"><option value="">선택...</option></select>
+      </div>
+      <button onclick="applyBulkEdit()" style="padding:7px 20px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-size:12px;white-space:nowrap;height:30px;align-self:flex-end">선택 항목 적용</button>
+    </div>
+    <!-- 전체선택 / 건수 -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;font-size:11px">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="bulk-chk-all" onchange="bulkToggleAll(this.checked)"> 전체선택</label>
+      <span id="bulk-sel-info" style="color:#888"></span>
+      <span id="bulk-status" style="margin-left:auto;color:#1a7a4a;font-weight:600"></span>
+    </div>
+    <!-- 목록 -->
+    <div id="bulk-list" style="overflow-y:auto;max-height:50vh;border:1px solid #e5e5e5;border-radius:6px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="btn" onclick="closeOv('bulk-ov')">닫기</button>
+    </div>
   </div>
 </div>
 
@@ -1735,6 +1778,97 @@ function resolveCardPurpose(purpose,cid){
   const m=CARD_PURPOSE_MAP.find(m=>purpose.includes(m.kw));
   if(m){return{cat1:cat1FromCat2(cid,m.cat2)||'',cat2:m.cat2,cat3:m.cat3};}
   return{cat1:cat1FromCat2(cid,purpose)||'',cat2:purpose,cat3:''};
+}
+
+// ══════════════════════════════════════════════
+// 일괄 등록
+// ══════════════════════════════════════════════
+function openBulkEdit(){
+  const ac=getAc(curCo),k1s=Object.keys(ac).filter(k=>k!=='_cat4'),c4=getC4(curCo);
+  document.getElementById('bulk-cat1').innerHTML='<option value="">선택...</option>'+k1s.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('bulk-cat2').innerHTML='<option value="">선택...</option>';
+  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>';
+  document.getElementById('bulk-cat4').innerHTML='<option value="">선택...</option>'+c4.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('bulk-filter').value='';
+  document.getElementById('bulk-status').textContent='';
+  renderBulkList();
+  document.getElementById('bulk-ov').classList.add('show');
+}
+function upBulkCat2(){
+  const c1=document.getElementById('bulk-cat1').value,ac=getAc(curCo);
+  const subs=Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4');
+  document.getElementById('bulk-cat2').innerHTML='<option value="">선택...</option>'+subs.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>';
+}
+function upBulkCat3(){
+  const c1=document.getElementById('bulk-cat1').value,c2=document.getElementById('bulk-cat2').value,ac=getAc(curCo);
+  const subs=(ac[c1]?.[c2]||[]);
+  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>'+subs.map(c=>`<option>${c}</option>`).join('');
+}
+function renderBulkList(){
+  const kw=(document.getElementById('bulk-filter').value||'').toLowerCase();
+  const rows=getRows(curCo).filter(r=>!r.cat2&&(num(r.income)||num(r.expense))&&!r.splitGroup);
+  const list=kw?rows.filter(r=>(r.desc||'').toLowerCase().includes(kw)):rows;
+  const total=list.length;
+  if(!total){
+    document.getElementById('bulk-list').innerHTML='<p style="padding:20px;text-align:center;color:#aaa;font-size:12px">'+(kw?'검색 결과 없음':'미분류 항목 없음')+'</p>';
+    document.getElementById('bulk-sel-info').textContent='';
+    document.getElementById('bulk-chk-all').checked=false;
+    return;
+  }
+  let html='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+  html+='<thead style="background:#f9f9f9;"><tr>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:32px;position:sticky;top:0;background:#f9f9f9;"></th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:left;position:sticky;top:0;background:#f9f9f9;">기재내용</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:85px;position:sticky;top:0;background:#f9f9f9;">날짜</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:right;width:120px;position:sticky;top:0;background:#f9f9f9;">금액</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:60px;position:sticky;top:0;background:#f9f9f9;">계좌</th>';
+  html+='</tr></thead><tbody>';
+  list.forEach((r,i)=>{
+    const amt=r.income?Number(r.income):Number(r.expense);
+    const amtStr=(r.income?'+':'-')+amt.toLocaleString()+'원';
+    const amtColor=r.income?'#1a7a4a':'#c0392b';
+    const bg=i%2===0?'#fff':'#fafafa';
+    const acct=(r.acct||'').length>12?(r.acct||'').slice(-8)+'…':(r.acct||'');
+    html+=`<tr style="border-bottom:1px solid #f0f0f0;background:${bg};">`;
+    html+=`<td style="padding:7px 8px;text-align:center;"><input type="checkbox" class="_bulkChk" data-id="${r.id}" onchange="updateBulkSelInfo()"></td>`;
+    html+=`<td style="padding:7px 8px;">${r.desc||''}</td>`;
+    html+=`<td style="padding:7px 8px;color:#888;font-size:11px">${(r.date||'').slice(0,10)}</td>`;
+    html+=`<td style="padding:7px 8px;text-align:right;color:${amtColor};font-variant-numeric:tabular-nums;">${amtStr}</td>`;
+    html+=`<td style="padding:7px 8px;font-size:10px;color:#aaa">${acct}</td>`;
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('bulk-list').innerHTML=html;
+  updateBulkSelInfo();
+}
+function bulkToggleAll(checked){
+  document.querySelectorAll('._bulkChk').forEach(c=>{c.checked=checked;});
+  updateBulkSelInfo();
+}
+function updateBulkSelInfo(){
+  const total=document.querySelectorAll('._bulkChk').length;
+  const cnt=document.querySelectorAll('._bulkChk:checked').length;
+  document.getElementById('bulk-sel-info').textContent=`${total}건 중 ${cnt}건 선택`;
+  const allChk=document.getElementById('bulk-chk-all');
+  allChk.checked=total>0&&cnt===total;
+  allChk.indeterminate=cnt>0&&cnt<total;
+}
+function applyBulkEdit(){
+  const c1=document.getElementById('bulk-cat1').value;
+  if(!c1){alert('대분류를 선택해주세요.');return;}
+  const c2=document.getElementById('bulk-cat2').value;
+  const c3=document.getElementById('bulk-cat3').value;
+  const c4=document.getElementById('bulk-cat4').value;
+  const checked=[...document.querySelectorAll('._bulkChk:checked')];
+  if(!checked.length){alert('적용할 항목을 선택해주세요.');return;}
+  const ids=new Set(checked.map(c=>c.dataset.id));
+  pushUndo();
+  let cnt=0;
+  ST.rows.forEach(r=>{if(ids.has(r.id)){r.cat1=c1;r.cat2=c2;r.cat3=c3;r.cat4=c4;cnt++;}});
+  save();renderLedger();
+  renderBulkList();
+  document.getElementById('bulk-status').textContent=`✅ ${cnt}건 적용됨`;
 }
 
 // ══════════════════════════════════════════════
