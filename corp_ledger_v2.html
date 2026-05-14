@@ -2021,7 +2021,15 @@ function processSplitFile(file){
 
 function matchSplitRows(uploadedRows){
   const normD=d=>{const m=String(d||'').match(/(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})/);return m?m[1]+m[2]+m[3]:'';};
-  const normStr=s=>String(s||'').replace(/\s/g,'').toLowerCase();
+  const normStr=s=>{
+    let v=String(s||'');
+    // 전각문자(！～, U+FF01~FF60) → 반각 변환 (은행 기재내용에서 자주 사용)
+    v=v.replace(/[！-｠]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+    // 전각 공백(U+3000) → 공백
+    v=v.replace(/　/g,' ');
+    // 공백 제거 + 소문자화
+    return v.replace(/\s/g,'').toLowerCase();
+  };
   const proposals=[], unmatched=[], usedIds=new Set();
   const ledger=curCo==='__all__'?ST.rows:ST.rows.filter(r=>r.companyId===curCo);
   for(const u of uploadedRows){
@@ -2065,7 +2073,7 @@ function matchSplitRows(uploadedRows){
       else if(!byDateAmt.length) reason='금액 불일치 ('+total.toLocaleString()+'원 없음)';
       else reason='기재내용 불일치';
       // 진단: 같은 날짜+금액인 가계부 후보 기재내용
-      const candidateDescs=byDateAmt.map(r=>r.desc||'').slice(0,3);
+      const candidateDescs=byDateAmt.map(r=>({raw:r.desc||'',norm:normStr(String(r.desc||'').slice(2))})).slice(0,3);
       unmatched.push({...u,total,wallet,reason,uDescRaw:u.desc,uDescNorm:uDesc,candidateDescs});
     }
   }
@@ -2120,7 +2128,7 @@ function showSplitPreview(proposals,unmatched){
     unmatched.forEach((u,i)=>{
       const excelVal=u.uDescRaw?'<span style="background:#fef9c3;padding:1px 4px;border-radius:3px;">'+u.uDescRaw+'</span>':'<span style="color:#c0392b;font-style:italic;">비어있음 ⚠️</span>';
       const ledgerVal=u.candidateDescs&&u.candidateDescs.length
-        ? u.candidateDescs.map(d=>'<span style="background:#e0f2fe;padding:1px 4px;border-radius:3px;">'+d+'</span>').join(' ')
+        ? u.candidateDescs.map(d=>'<span style="background:#e0f2fe;padding:1px 4px;border-radius:3px;" title="정규화: '+d.norm+'">'+d.raw+'</span>').join(' ')
         : '<span style="color:#aaa;">해당 날짜+금액 행 없음</span>';
       h+='<tr style="border-bottom:1px solid #fef3e0;background:'+(i%2?'#fffdf5':'#fff')+'">';
       h+='<td style="padding:6px 8px;white-space:nowrap;">'+u.date+'</td>';
