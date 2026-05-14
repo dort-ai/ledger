@@ -1832,7 +1832,7 @@ function renderBulkList(){
     html+=`<td style="padding:7px 6px;color:#888;white-space:nowrap">${(r.date||'').slice(0,10)}</td>`;
     html+=`<td style="padding:7px 6px;text-align:right;color:#1a7a4a;font-variant-numeric:tabular-nums;white-space:nowrap">${incStr}</td>`;
     html+=`<td style="padding:7px 6px;text-align:right;color:#c0392b;font-variant-numeric:tabular-nums;white-space:nowrap">${expStr}</td>`;
-    html+=`<td style="padding:7px 6px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.acct||''}">${r.acct||''}</td>`;
+    html+=`<td style="padding:7px 6px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.wallet||''}">${r.wallet||''}</td>`;
     html+='</tr>';
   });
   html+='</tbody></table>';
