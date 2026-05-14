@@ -387,31 +387,30 @@ td.copy-flash{background:#c8f0c8!important}
 
 <!-- 일괄등록 모달 -->
 <div class="overlay" id="bulk-ov" onclick="bgClose(event,'bulk-ov')">
-  <div class="modal" style="max-width:900px;width:92vw">
+  <div class="modal" style="max-width:940px;width:94vw">
     <div class="modal-hd"><span class="modal-title">📝 일괄 등록</span><button class="close-btn" onclick="closeOv('bulk-ov')">×</button></div>
-    <!-- 분류 선택 -->
+    <!-- 입력 영역 -->
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px 12px;background:#f8f8f7;border-radius:7px;margin-bottom:10px">
-      <div style="flex:1;min-width:150px">
+      <div style="flex:1.5;min-width:160px">
         <div style="font-size:11px;color:#888;margin-bottom:3px">기재내용 검색</div>
         <input type="text" id="bulk-filter" placeholder="키워드..." oninput="renderBulkList()" style="width:100%;box-sizing:border-box">
       </div>
-      <div>
-        <div style="font-size:11px;color:#888;margin-bottom:3px">대분류 <span style="color:#c0392b">*</span></div>
-        <select id="bulk-cat1" onchange="upBulkCat2()" style="min-width:110px"><option value="">선택...</option></select>
+      <div style="flex:1;min-width:130px">
+        <div style="font-size:11px;color:#888;margin-bottom:3px">중분류 <span style="color:#c0392b">*</span></div>
+        <input type="text" id="bulk-cat2" list="bulk-cat2-list" placeholder="중분류 입력..." style="width:100%;box-sizing:border-box">
+        <datalist id="bulk-cat2-list"></datalist>
       </div>
-      <div>
-        <div style="font-size:11px;color:#888;margin-bottom:3px">중분류</div>
-        <select id="bulk-cat2" onchange="upBulkCat3()" style="min-width:120px"><option value="">선택...</option></select>
+      <div style="flex:1;min-width:110px">
+        <div style="font-size:11px;color:#888;margin-bottom:3px">소분류 <span style="color:#bbb">선택</span></div>
+        <input type="text" id="bulk-cat3" list="bulk-cat3-list" placeholder="소분류..." style="width:100%;box-sizing:border-box">
+        <datalist id="bulk-cat3-list"></datalist>
       </div>
-      <div>
-        <div style="font-size:11px;color:#888;margin-bottom:3px">소분류</div>
-        <select id="bulk-cat3" style="min-width:100px"><option value="">선택...</option></select>
+      <div style="flex:1;min-width:100px">
+        <div style="font-size:11px;color:#888;margin-bottom:3px">소속 <span style="color:#bbb">선택</span></div>
+        <input type="text" id="bulk-cat4" list="bulk-cat4-list" placeholder="소속..." style="width:100%;box-sizing:border-box">
+        <datalist id="bulk-cat4-list"></datalist>
       </div>
-      <div>
-        <div style="font-size:11px;color:#888;margin-bottom:3px">소속</div>
-        <select id="bulk-cat4" style="min-width:90px"><option value="">선택...</option></select>
-      </div>
-      <button onclick="applyBulkEdit()" style="padding:7px 20px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-size:12px;white-space:nowrap;height:30px;align-self:flex-end">선택 항목 적용</button>
+      <button onclick="applyBulkEdit()" style="padding:7px 20px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-size:12px;white-space:nowrap;align-self:flex-end">선택 항목 적용</button>
     </div>
     <!-- 전체선택 / 건수 -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;font-size:11px">
@@ -1784,26 +1783,22 @@ function resolveCardPurpose(purpose,cid){
 // 일괄 등록
 // ══════════════════════════════════════════════
 function openBulkEdit(){
-  const ac=getAc(curCo),k1s=Object.keys(ac).filter(k=>k!=='_cat4'),c4=getC4(curCo);
-  document.getElementById('bulk-cat1').innerHTML='<option value="">선택...</option>'+k1s.map(c=>`<option>${c}</option>`).join('');
-  document.getElementById('bulk-cat2').innerHTML='<option value="">선택...</option>';
-  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>';
-  document.getElementById('bulk-cat4').innerHTML='<option value="">선택...</option>'+c4.map(c=>`<option>${c}</option>`).join('');
+  const ac=getAc(curCo),c4=getC4(curCo);
+  // 중분류 datalist
+  const cat2s=[...new Set(Object.entries(ac).filter(([k])=>k!=='_cat4').flatMap(([,sub])=>Object.keys(sub).filter(k=>k!=='_cat4')))];
+  document.getElementById('bulk-cat2-list').innerHTML=cat2s.map(v=>`<option value="${v}">`).join('');
+  // 소분류 datalist
+  const cat3s=[...new Set(Object.values(ac).filter(v=>typeof v==='object'&&!Array.isArray(v)).flatMap(sub=>Object.values(sub).filter(Array.isArray).flat()))];
+  document.getElementById('bulk-cat3-list').innerHTML=cat3s.map(v=>`<option value="${v}">`).join('');
+  // 소속 datalist
+  document.getElementById('bulk-cat4-list').innerHTML=c4.map(v=>`<option value="${v}">`).join('');
   document.getElementById('bulk-filter').value='';
+  document.getElementById('bulk-cat2').value='';
+  document.getElementById('bulk-cat3').value='';
+  document.getElementById('bulk-cat4').value='';
   document.getElementById('bulk-status').textContent='';
   renderBulkList();
   document.getElementById('bulk-ov').classList.add('show');
-}
-function upBulkCat2(){
-  const c1=document.getElementById('bulk-cat1').value,ac=getAc(curCo);
-  const subs=Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4');
-  document.getElementById('bulk-cat2').innerHTML='<option value="">선택...</option>'+subs.map(c=>`<option>${c}</option>`).join('');
-  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>';
-}
-function upBulkCat3(){
-  const c1=document.getElementById('bulk-cat1').value,c2=document.getElementById('bulk-cat2').value,ac=getAc(curCo);
-  const subs=(ac[c1]?.[c2]||[]);
-  document.getElementById('bulk-cat3').innerHTML='<option value="">선택...</option>'+subs.map(c=>`<option>${c}</option>`).join('');
 }
 function renderBulkList(){
   const kw=(document.getElementById('bulk-filter').value||'').toLowerCase();
@@ -1816,31 +1811,28 @@ function renderBulkList(){
     document.getElementById('bulk-chk-all').checked=false;
     return;
   }
-  const th=(t,w,align)=>`<th style="padding:8px 6px;border-bottom:1px solid #e5e5e5;${w?'width:'+w+';':''}${align?'text-align:'+align+';':'text-align:left;'}white-space:nowrap;position:sticky;top:0;background:#f9f9f9;font-size:11px;color:#555">${t}</th>`;
+  const th=(t,w,align)=>`<th style="padding:8px 6px;border-bottom:1px solid #e5e5e5;${w?'width:'+w+';':''}text-align:${align||'left'};white-space:nowrap;position:sticky;top:0;background:#f9f9f9;font-size:11px;color:#555">${t}</th>`;
   let html='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-  html+='<thead style="background:#f9f9f9;"><tr>';
+  html+='<thead><tr>';
   html+=th('','32px','center');
-  html+=th('기재내용');
-  html+=th('날짜','80px');
-  html+=th('금액','110px','right');
-  html+=th('계좌','160px');
-  html+=th('비고','80px');
-  html+=th('대분류','90px');
+  html+=th('기재내용','','left');
+  html+=th('날짜','82px','left');
+  html+=th('입금','110px','right');
+  html+=th('출금','110px','right');
+  html+=th('계좌','','left');
   html+='</tr></thead><tbody>';
   list.forEach((r,i)=>{
     const inc=num(r.income),exp=num(r.expense);
-    const signed=inc?inc:-exp;
-    const amtStr=(signed<0?'':signed===0?'':'')+signed.toLocaleString()+'원';
-    const amtColor=inc>0?'#1a7a4a':exp>0?'#c0392b':'#aaa';
     const bg=i%2===0?'#fff':'#fafafa';
+    const incStr=inc>0?inc.toLocaleString()+'원':'';
+    const expStr=exp>0?exp.toLocaleString()+'원':'';
     html+=`<tr style="border-bottom:1px solid #f0f0f0;background:${bg};">`;
     html+=`<td style="padding:7px 8px;text-align:center;"><input type="checkbox" class="_bulkChk" data-id="${r.id}" onchange="updateBulkSelInfo()"></td>`;
-    html+=`<td style="padding:7px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.desc||''}</td>`;
-    html+=`<td style="padding:7px 6px;color:#888;font-size:11px;white-space:nowrap">${(r.date||'').slice(0,10)}</td>`;
-    html+=`<td style="padding:7px 6px;text-align:right;color:${amtColor};font-variant-numeric:tabular-nums;white-space:nowrap">${amtStr}</td>`;
-    html+=`<td style="padding:7px 6px;font-size:11px;color:#666;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.acct||''}">${r.acct||''}</td>`;
-    html+=`<td style="padding:7px 6px;font-size:11px;color:#888;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.note||''}</td>`;
-    html+=`<td style="padding:7px 6px;font-size:11px;color:#2563eb">${r.cat1||'<span style="color:#ddd">—</span>'}</td>`;
+    html+=`<td style="padding:7px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px">${r.desc||''}</td>`;
+    html+=`<td style="padding:7px 6px;color:#888;white-space:nowrap">${(r.date||'').slice(0,10)}</td>`;
+    html+=`<td style="padding:7px 6px;text-align:right;color:#1a7a4a;font-variant-numeric:tabular-nums;white-space:nowrap">${incStr}</td>`;
+    html+=`<td style="padding:7px 6px;text-align:right;color:#c0392b;font-variant-numeric:tabular-nums;white-space:nowrap">${expStr}</td>`;
+    html+=`<td style="padding:7px 6px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.acct||''}">${r.acct||''}</td>`;
     html+='</tr>';
   });
   html+='</tbody></table>';
@@ -1860,13 +1852,13 @@ function updateBulkSelInfo(){
   allChk.indeterminate=cnt>0&&cnt<total;
 }
 function applyBulkEdit(){
-  const c1=document.getElementById('bulk-cat1').value;
-  if(!c1){alert('대분류를 선택해주세요.');return;}
-  const c2=document.getElementById('bulk-cat2').value;
-  const c3=document.getElementById('bulk-cat3').value;
-  const c4=document.getElementById('bulk-cat4').value;
+  const c2=document.getElementById('bulk-cat2').value.trim();
+  if(!c2){alert('중분류를 입력해주세요.');return;}
   const checked=[...document.querySelectorAll('._bulkChk:checked')];
   if(!checked.length){alert('적용할 항목을 선택해주세요.');return;}
+  const c1=cat1FromCat2(curCo,c2)||'';
+  const c3=document.getElementById('bulk-cat3').value.trim();
+  const c4=document.getElementById('bulk-cat4').value.trim();
   const ids=new Set(checked.map(c=>c.dataset.id));
   pushUndo();
   let cnt=0;
