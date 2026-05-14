@@ -236,14 +236,19 @@ td.copy-flash{background:#c8f0c8!important}
       <div class="learn-card">
         <div class="card-title">📌 고정 분류 규칙</div>
         <div id="fixed-rules-list" style="margin-bottom:10px"></div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:6px">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:6px">
           <div class="field"><label>키워드</label><input id="rule-keyword" placeholder="예: FACEBK"></div>
           <div class="field"><label>대분류</label><select id="rule-cat1" style="width:100%" onchange="updateRuleCat2()"><option value="">선택...</option></select></div>
           <div class="field"><label>중분류</label><select id="rule-cat2" style="width:100%"><option value="">선택...</option></select></div>
           <div class="field"><label>소분류</label><input id="rule-cat3" placeholder="직접 입력" style="width:100%"></div>
           <div class="field"><label>소속</label><select id="rule-cat4" style="width:100%"><option value="">선택...</option></select></div>
+          <div class="field"><label>비고</label><input id="rule-note" placeholder="메모..." style="width:100%"></div>
         </div>
-        <button class="btn btn-p" onclick="addRule()" style="width:100%;font-size:11px">규칙 추가</button>
+        <div style="display:flex;gap:6px">
+          <button id="rule-add-btn" class="btn btn-p" onclick="addRule()" style="flex:1;font-size:11px">규칙 추가</button>
+          <button id="rule-save-btn" class="btn btn-p" onclick="saveRule()" style="flex:1;font-size:11px;display:none">수정 저장</button>
+          <button id="rule-cancel-btn" class="btn" onclick="cancelEditRule()" style="font-size:11px;display:none">취소</button>
+        </div>
       </div>
     </div>
 
@@ -1734,7 +1739,7 @@ function renderLearn(){
     :ups.map(u=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f8f8f7;border-radius:5px;margin-bottom:4px;font-size:11px"><span>📄 ${u.name}</span><span style="color:#aaa">${u.rows}행</span><button class="btn-sm btn-d" onclick="delLearnUpload('${u.id}')" style="margin-left:auto">삭제</button></div>`).join('');
   const rules=(ST.fixedRules||[]).filter(r=>r.companyId===cid);
   document.getElementById('fixed-rules-list').innerHTML=rules.length===0?'<p style="color:#aaa;font-size:11px;margin-bottom:8px">등록된 규칙 없음</p>'
-    :rules.map((r,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#f8f8f7;border-radius:5px;margin-bottom:4px;font-size:11px"><span style="font-weight:600">${r.keyword}</span> → <span class="learn-badge">${r.cat1}</span>${r.cat2?`<span class="learn-badge">${r.cat2}</span>`:''}${r.cat3?`<span class="learn-badge">${r.cat3}</span>`:''}${r.cat4?`<span style="font-size:10px;color:#888">[${r.cat4}]</span>`:''}<button class="btn-sm btn-d" onclick="delRule(${i})" style="margin-left:auto">삭제</button></div>`).join('');
+    :rules.map((r,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#f8f8f7;border-radius:5px;margin-bottom:4px;font-size:11px"><span style="font-weight:600">${r.keyword}</span> → <span class="learn-badge">${r.cat1}</span>${r.cat2?`<span class="learn-badge">${r.cat2}</span>`:''}${r.cat3?`<span class="learn-badge">${r.cat3}</span>`:''}${r.cat4?`<span style="font-size:10px;color:#888">[${r.cat4}]</span>`:''}${r.note?`<span style="font-size:10px;color:#888;margin-left:2px">📝 ${r.note}</span>`:''}<div style="margin-left:auto;display:flex;gap:4px"><button class="btn-sm" onclick="editRule(${i})">수정</button><button class="btn-sm btn-d" onclick="delRule(${i})">삭제</button></div></div>`).join('');
   document.getElementById('rule-cat1').innerHTML=`<option value="">대분류 선택...</option>`+k1s.map(c=>`<option>${c}</option>`).join('');
   updateRuleCat2(); // 내부에서 updateRuleCat3()도 호출
   document.getElementById('rule-cat4').innerHTML=`<option value="">소속 선택...</option>`+c4.map(c=>`<option>${c}</option>`).join('');
@@ -1744,18 +1749,62 @@ function updateRuleCat2(){
   const ac=getAc(curCo);
   document.getElementById('rule-cat2').innerHTML=`<option value="">중분류 선택...</option>`+Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4').map(c=>`<option>${c}</option>`).join('');
 }
-function addRule(){
-  const kw=document.getElementById('rule-keyword').value.trim();
-  const c1=document.getElementById('rule-cat1').value;
-  if(!kw||!c1){alert('키워드와 대분류는 필수');return;}
-  if(!ST.fixedRules)ST.fixedRules=[];
-  ST.fixedRules.push({
-    companyId:curCo, keyword:kw, cat1:c1,
+let _editRuleIdx=null;
+function _ruleFormVals(){
+  return{
+    companyId:curCo,
+    keyword:document.getElementById('rule-keyword').value.trim(),
+    cat1:document.getElementById('rule-cat1').value,
     cat2:document.getElementById('rule-cat2').value,
     cat3:document.getElementById('rule-cat3').value,
     cat4:document.getElementById('rule-cat4').value,
-  });
-  save(); renderLearn(); document.getElementById('rule-keyword').value='';
+    note:document.getElementById('rule-note').value.trim(),
+  };
+}
+function _clearRuleForm(){
+  ['rule-keyword','rule-cat3','rule-note'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('rule-cat1').value='';
+  updateRuleCat2();
+  document.getElementById('rule-cat4').value='';
+}
+function _setRuleMode(editing){
+  document.getElementById('rule-add-btn').style.display=editing?'none':'';
+  document.getElementById('rule-save-btn').style.display=editing?'':'none';
+  document.getElementById('rule-cancel-btn').style.display=editing?'':'none';
+}
+function addRule(){
+  const v=_ruleFormVals();
+  if(!v.keyword||!v.cat1){alert('키워드와 대분류는 필수');return;}
+  if(!ST.fixedRules)ST.fixedRules=[];
+  ST.fixedRules.push(v);
+  save();renderLearn();_clearRuleForm();
+}
+function editRule(i){
+  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);
+  const r=rules[i];if(!r)return;
+  _editRuleIdx=ST.fixedRules.indexOf(r);
+  document.getElementById('rule-keyword').value=r.keyword||'';
+  document.getElementById('rule-cat1').value=r.cat1||'';
+  updateRuleCat2();
+  setTimeout(()=>{
+    document.getElementById('rule-cat2').value=r.cat2||'';
+    document.getElementById('rule-cat3').value=r.cat3||'';
+    document.getElementById('rule-cat4').value=r.cat4||'';
+    document.getElementById('rule-note').value=r.note||'';
+  },0);
+  _setRuleMode(true);
+  document.getElementById('rule-keyword').focus();
+}
+function saveRule(){
+  const v=_ruleFormVals();
+  if(!v.keyword||!v.cat1){alert('키워드와 대분류는 필수');return;}
+  if(_editRuleIdx===null)return;
+  ST.fixedRules[_editRuleIdx]=v;
+  _editRuleIdx=null;
+  save();renderLearn();_clearRuleForm();_setRuleMode(false);
+}
+function cancelEditRule(){
+  _editRuleIdx=null;_clearRuleForm();_setRuleMode(false);
 }
 function delRule(i){const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);const rule=rules[i];if(!rule)return;ST.fixedRules=ST.fixedRules.filter(r=>r!==rule);save();renderLearn();}
 function delLearnUpload(id){ST.learnUploads=(ST.learnUploads||[]).filter(u=>u.id!==id);save();renderLearn();}
