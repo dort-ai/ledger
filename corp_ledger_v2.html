@@ -2173,8 +2173,12 @@ function applySplits(idxs,proposals){
     let ins=idx+1; while(ins<ST.rows.length&&ST.rows[ins].splitParent===parent.id)ins++;
     ST.rows.splice(ins,0,nr1,nr2); cnt++;
   });
-  const months=[...new Set(idxs.map(i=>proposals[i].row.month).filter(Boolean))];
-  save(null,months);
+  const affectedIds=idxs.flatMap(i=>{
+    const p=proposals[i];
+    const siblings=ST.rows.filter(r=>r.splitParent===p.row.id).map(r=>r.id);
+    return [p.row.id,...siblings];
+  });
+  save(affectedIds);
   renderLedger();
   alert('✅ '+cnt+'건 분할 완료');
 }
