@@ -193,6 +193,7 @@ td.copy-flash{background:#c8f0c8!important}
         <div class="ml-a">
           <button class="btn btn-d" id="btn-del-sel" onclick="delSelected()" style="display:none">선택삭제</button>
           <button class="btn" onclick="addRow()" id="btn-add">+ 행 추가</button>
+          <button class="btn" onclick="backupData()" id="btn-backup" title="전체 데이터를 JSON으로 백업" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;">💾 백업</button>
           <button class="btn" onclick="exportExcel()" id="btn-export">📥 내보내기</button>
           <button class="btn ai-btn" onclick="openAI()" id="btn-ai">🤖 AI 자동분류</button>
           <button class="btn" onclick="openAutoSplit()" id="btn-split" style="background:#f0f7ff;border-color:#bfdbfe;color:#1d4ed8;">✂ 자동분할</button>
@@ -561,14 +562,14 @@ async function updateMonthsInFirestore(months){
 }
 
 // 전체 데이터 백업
-function backupData(){
+function backupData(auto=false){
   const json=JSON.stringify(ST,null,2);
   const blob=new Blob([json],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   const d=new Date();
-  const ds=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  a.download=`법인가계부_백업_${ds}.json`;
+  const ds=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
+  a.download=`법인가계부_${auto?'자동':'수동'}백업_${ds}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -1885,6 +1886,7 @@ function showPreview(type,data){
 function cancelImport(){pendingImport={type:null,data:[]};document.getElementById('preview-area').style.display='none';}
 function confirmImport(){
   const{type,data}=pendingImport;if(!data.length)return;const cid=curCo;let count=0;
+  backupData(true);
   pushUndo();
   if(type==='ledger'){
     data.forEach(r=>{
@@ -2159,6 +2161,7 @@ function showSplitPreview(proposals,unmatched){
 
 function applySplits(idxs,proposals){
   if(!idxs.length){alert('선택된 항목이 없습니다.');return;}
+  backupData(true);
   pushUndo(); let cnt=0;
   idxs.forEach(i=>{
     const p=proposals[i], parent=p.row;
