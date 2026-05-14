@@ -195,7 +195,8 @@ td.copy-flash{background:#c8f0c8!important}
           <button class="btn" onclick="addRow()" id="btn-add">+ 행 추가</button>
           <button class="btn" onclick="backupData()" id="btn-backup" title="전체 데이터를 JSON으로 백업" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;">💾 백업</button>
           <button class="btn" onclick="exportExcel()" id="btn-export">📥 내보내기</button>
-          <button class="btn ai-btn" onclick="openAI()" id="btn-ai">🤖 AI 자동분류</button>
+          <button class="btn" onclick="runFixedRules()" id="btn-rules" style="background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;">📋 고정규칙 분류</button>
+          <button class="btn ai-btn" onclick="openAI()" id="btn-ai">🤖 AI 분류</button>
           <button class="btn" onclick="openAutoSplit()" id="btn-split" style="background:#f0f7ff;border-color:#bfdbfe;color:#1d4ed8;">✂ 자동분할</button>
         </div>
       </div>
@@ -387,8 +388,8 @@ td.copy-flash{background:#c8f0c8!important}
 <div class="overlay" id="ai-ov" onclick="bgClose(event,'ai-ov')">
   <div class="modal" style="max-width:480px">
     <div class="modal-hd"><span class="modal-title">🤖 AI 자동분류</span><button class="close-btn" onclick="closeOv('ai-ov')">×</button></div>
-    <p style="font-size:11px;color:#666;margin-bottom:8px;line-height:1.6">분류가 비어있는 거래를 AI가 자동 분류합니다.<br>고정 규칙 → 이전 기록 패턴 → AI 순서로 처리되며, 불확실한 항목은 건너뜁니다.</p>
-    <div style="font-size:11px;color:#888;margin-bottom:8px">대상: <span id="ai-cnt" style="color:#1a1a1a;font-weight:700"></span>건 &nbsp;|&nbsp; 고정규칙: <span id="ai-rule-cnt" style="color:#2563eb;font-weight:700"></span>건 즉시 적용</div>
+    <p style="font-size:11px;color:#666;margin-bottom:8px;line-height:1.6">분류가 비어있는 거래를 Groq AI가 자동 분류합니다.<br>이전 기록 패턴을 참고하며, 불확실한 항목은 건너뜁니다.<br>적용 전 검토 화면이 표시됩니다.</p>
+    <div style="font-size:11px;color:#888;margin-bottom:8px">AI 분류 대상: <span id="ai-cnt" style="color:#1a1a1a;font-weight:700"></span>건</div>
     <div id="ai-prog" style="display:none;background:#f8f8f7;border-radius:7px;padding:10px;font-size:11px;line-height:2"></div>
     <div style="display:flex;justify-content:flex-end;gap:7px;margin-top:10px">
       <button class="btn" onclick="closeOv('ai-ov')">닫기</button>
@@ -1737,13 +1738,85 @@ function resolveCardPurpose(purpose,cid){
 }
 
 // ══════════════════════════════════════════════
+// 고정규칙 분류
+// ══════════════════════════════════════════════
+function runFixedRules(){
+  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);
+  if(!rules.length){alert('등록된 고정 규칙이 없습니다.\n학습 탭 → 고정 규칙에서 추가하세요.');return;}
+  const unclassed=getRows(curCo).filter(r=>!r.cat2&&(num(r.income)||num(r.expense))&&!r.splitGroup);
+  if(!unclassed.length){alert('분류할 항목이 없습니다.');return;}
+  const proposals=[];
+  unclassed.forEach(r=>{
+    const m=rules.find(ru=>r.desc?.includes(ru.keyword));
+    if(m) proposals.push({row:r,cat1:m.cat1,cat2:m.cat2||'',cat3:m.cat3||'',cat4:m.cat4||''});
+  });
+  if(!proposals.length){alert('현재 미분류 항목 중 고정 규칙에 해당하는 항목이 없습니다.');return;}
+  showFixedRulesPreview(proposals);
+}
+
+function showFixedRulesPreview(proposals){
+  const old=document.getElementById('_frPreviewOverlay');if(old)old.remove();
+  const ov=document.createElement('div');
+  ov.id='_frPreviewOverlay';
+  ov.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  let html='<div style="background:#fff;border-radius:12px;padding:24px;width:860px;max-height:80vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 8px 40px rgba(0,0,0,.3);">';
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">';
+  html+='<h3 style="margin:0;font-size:15px;">📋 고정규칙 분류 결과 검토 ('+proposals.length+'건)</h3>';
+  html+='<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="_frChkAll" checked> 전체선택</label>';
+  html+='</div>';
+  html+='<div style="overflow-y:auto;flex:1;border:1px solid #e5e5e5;border-radius:6px;">';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+  html+='<thead style="background:#f9f9f9;"><tr>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:32px;position:sticky;top:0;background:#f9f9f9;"></th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:left;position:sticky;top:0;background:#f9f9f9;">기재내용</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:right;width:120px;position:sticky;top:0;background:#f9f9f9;">금액</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:110px;position:sticky;top:0;background:#f9f9f9;">대분류</th>';
+  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:130px;position:sticky;top:0;background:#f9f9f9;">중분류</th>';
+  html+='</tr></thead><tbody>';
+  proposals.forEach(function(p,i){
+    const amtNum=p.row.income?Number(p.row.income):Number(p.row.expense);
+    const amtStr=(p.row.income?'+':'-')+amtNum.toLocaleString()+'원';
+    const amtColor=p.row.income?'#1a7a4a':'#c0392b';
+    const bg=i%2===0?'#fff':'#fafafa';
+    html+='<tr style="border-bottom:1px solid #f0f0f0;background:'+bg+';">';
+    html+='<td style="padding:7px 8px;text-align:center;"><input type="checkbox" class="_frRowChk" data-idx="'+i+'" checked></td>';
+    html+='<td style="padding:7px 8px;">'+(p.row.desc||'')+'</td>';
+    html+='<td style="padding:7px 8px;text-align:right;color:'+amtColor+';font-variant-numeric:tabular-nums;">'+amtStr+'</td>';
+    html+='<td style="padding:7px 8px;">'+(p.cat1||'<span style="color:#bbb">-</span>')+'</td>';
+    html+='<td style="padding:7px 8px;">'+(p.cat2||'<span style="color:#bbb">-</span>')+'</td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;">';
+  html+='<button id="_frCancelBtn" style="padding:8px 22px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;font-size:13px;">취소</button>';
+  html+='<button id="_frApplyBtn" style="padding:8px 22px;border-radius:6px;border:none;background:#6d28d9;color:#fff;cursor:pointer;font-size:13px;">선택 항목 적용</button>';
+  html+='</div></div>';
+  ov.innerHTML=html;
+  document.body.appendChild(ov);
+  document.getElementById('_frChkAll').onchange=function(){
+    const v=this.checked;document.querySelectorAll('._frRowChk').forEach(c=>{c.checked=v;});
+  };
+  document.getElementById('_frCancelBtn').onclick=()=>ov.remove();
+  document.getElementById('_frApplyBtn').onclick=function(){
+    const idxs=Array.from(document.querySelectorAll('._frRowChk')).filter(c=>c.checked).map(c=>parseInt(c.dataset.idx));
+    ov.remove();
+    if(!idxs.length){alert('선택된 항목이 없습니다.');return;}
+    pushUndo();
+    idxs.forEach(i=>{
+      const p=proposals[i];
+      p.row.cat1=p.cat1;p.row.cat2=p.cat2;p.row.cat3=p.cat3;p.row.cat4=p.cat4;
+    });
+    save();renderLedger();
+    alert(`✅ ${idxs.length}건 적용 완료`);
+  };
+}
+
+// ══════════════════════════════════════════════
 // AI 자동분류
 // ══════════════════════════════════════════════
 function openAI(){
   const unclassed=getRows(curCo).filter(r=>!r.cat2&&(num(r.income)||num(r.expense))&&!r.splitGroup);
-  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);
   document.getElementById('ai-cnt').textContent=unclassed.length;
-  document.getElementById('ai-rule-cnt').textContent=unclassed.filter(r=>rules.some(ru=>r.desc?.includes(ru.keyword))).length;
   document.getElementById('ai-prog').style.display='none';
   document.getElementById('ai-run').disabled=false;
   document.getElementById('ai-ov').classList.add('show');
@@ -1754,13 +1827,6 @@ async function runAI(){
   const btn=document.getElementById('ai-run');btn.disabled=true;
   const prog=document.getElementById('ai-prog');prog.style.display='block';prog.innerHTML='';
   const step=(msg,done)=>{prog.innerHTML+=(done?'✅ ':'⏳ ')+msg+'<br>';};
-  pushUndo();
-  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);
-  let rc=0;
-  unclassed.forEach(r=>{const m=rules.find(ru=>r.desc?.includes(ru.keyword));if(m){r.cat1=m.cat1;r.cat2=m.cat2||'';r.cat3=m.cat3||'';r.cat4=m.cat4||'';rc++;}});
-  step(`고정 규칙 ${rc}건 적용`,true);
-  const remain=getRows(curCo).filter(r=>!r.cat2&&(num(r.income)||num(r.expense)));
-  if(!remain.length){save();renderLedger();step('완료!',true);btn.disabled=false;return;}
   const ac=getAc(curCo),k1s=Object.keys(ac).filter(k=>k!=='_cat4'),c4=getC4(curCo);
   const classified=getRows(curCo).filter(r=>r.cat1).slice(-150);
   const ups=(ST.learnUploads||[]).filter(u=>u.companyId===curCo);
