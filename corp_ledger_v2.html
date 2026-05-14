@@ -1972,7 +1972,6 @@ function openAutoSplit(){
 function downloadSplitTemplate(){
   const ws=XLSX.utils.aoa_to_sheet([
     ['이체일시','출금계좌번호','이체금액(원)','수수료(원)','보내는분 통장표시'],
-    ['2026.04.05 08:33:03','1005-704-480165','1450500','250','김준건용역'],
   ]);
   ws['!cols']=[{wch:22},{wch:18},{wch:13},{wch:10},{wch:22}];
   const wb=XLSX.utils.book_new();
@@ -2008,14 +2007,13 @@ function processSplitFile(file){
         desc:String(r[iDesc]||'').trim(),
       })).filter(r=>r.fee>0);
       if(!rows.length){st.textContent='수수료가 있는 행이 없습니다.'; return;}
-      const proposals=matchSplitRows(rows);
-      if(!proposals.length){
-        st.style.color='#c0392b';
-        st.textContent='❌ 매칭된 항목이 없습니다. 날짜·계좌·금액·기재내용을 확인해주세요.'; return;
-      }
-      st.style.color='#1a7a4a'; st.textContent='✅ '+proposals.length+'건 매칭됨 — 확인 창을 확인해주세요.';
+      const {proposals,unmatched}=matchSplitRows(rows);
+      const total=proposals.length+unmatched.length;
+      if(!proposals.length&&!unmatched.length){st.style.color='#c0392b';st.textContent='❌ 매칭된 항목이 없습니다.';return;}
+      st.style.color='#1a7a4a';
+      st.textContent='매칭 '+proposals.length+'/'+total+'건 — 확인 창을 확인해주세요.';
       closeOv('split-ov');
-      showSplitPreview(proposals);
+      showSplitPreview(proposals,unmatched);
     }catch(err){st.style.color='#c0392b'; st.textContent='❌ 오류: '+err.message;}
   };
   reader.readAsArrayBuffer(file);
@@ -2024,62 +2022,114 @@ function processSplitFile(file){
 function matchSplitRows(uploadedRows){
   const normD=d=>{const m=String(d||'').match(/(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})/);return m?m[1]+m[2]+m[3]:'';};
   const normStr=s=>String(s||'').replace(/\s/g,'').toLowerCase();
-  const proposals=[], usedIds=new Set();
+  const proposals=[], unmatched=[], usedIds=new Set();
   const ledger=curCo==='__all__'?ST.rows:ST.rows.filter(r=>r.companyId===curCo);
   for(const u of uploadedRows){
     const total=u.amount+u.fee;
     const wallet=WIRE_ACCT_MAP[u.acctNo]||'';
     const dk=normD(u.date);
-    const uDesc=normStr(u.desc); // Excel: 은행명 없음
-    const match=ledger.find(r=>{
+    const uDesc=normStr(u.desc);
+
+    // 단계별 매칭 시도 (점점 조건 완화)
+    const tryFind=(checkWallet,checkDesc,checkTotal)=>ledger.find(r=>{
       if(usedIds.has(r.id))return false;
       if(normD(r.date)!==dk)return false;
-      if(wallet&&r.wallet&&r.wallet!==wallet)return false;
-      if(num(r.expense)!==total)return false;
-      // 기재내용 앞 2글자(은행명) 제외 후 매칭
-      if(uDesc){
+      if(checkWallet&&wallet&&r.wallet&&r.wallet!==wallet)return false;
+      const expense=num(r.expense);
+      if(checkTotal&&expense!==total)return false;
+      if(!checkTotal&&expense!==u.amount)return false; // 수수료 별도 계상
+      if(checkDesc&&uDesc){
         const rDesc=normStr(String(r.desc||'').slice(2));
         if(!rDesc.includes(uDesc)&&!uDesc.includes(rDesc))return false;
       }
       return true;
     });
-    if(match){usedIds.add(match.id); proposals.push({row:match,fee:u.fee,amount:u.amount});}
+
+    let match=null, note='';
+    if((match=tryFind(true,true,true)))  note='';
+    else if((match=tryFind(true,false,true)))  note='기재내용 불일치 (금액·계좌로 매칭)';
+    else if((match=tryFind(false,true,true)))  note='계좌 불일치 (날짜·금액으로 매칭)';
+    else if((match=tryFind(false,false,true))) note='계좌·기재내용 불일치 (날짜·금액으로 매칭)';
+    else if((match=tryFind(true,true,false)))  note='금액=이체금액만 매칭 (수수료 별도 계상?)';
+
+    if(match){
+      usedIds.add(match.id);
+      proposals.push({row:match,fee:u.fee,amount:u.amount,note});
+    } else {
+      // 매칭 실패 원인 진단
+      const byDate=ledger.filter(r=>normD(r.date)===dk);
+      let reason;
+      if(!byDate.length) reason='날짜 없음 ('+u.date+')';
+      else if(wallet&&byDate.every(r=>r.wallet&&r.wallet!==wallet)) reason='계좌 불일치 ('+wallet+' 없음)';
+      else if(byDate.every(r=>num(r.expense)!==total&&num(r.expense)!==u.amount)) reason='금액 불일치 ('+total.toLocaleString()+'원 없음)';
+      else reason='기재내용 불일치';
+      unmatched.push({...u,total,wallet,reason});
+    }
   }
-  return proposals;
+  return {proposals,unmatched};
 }
 
-function showSplitPreview(proposals){
+function showSplitPreview(proposals,unmatched){
   const old=document.getElementById('_splitPreviewOv');if(old)old.remove();
   const ov=document.createElement('div');
   ov.id='_splitPreviewOv';
   ov.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
-  let h='<div style="background:#fff;border-radius:12px;padding:24px;width:880px;max-height:82vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 8px 40px rgba(0,0,0,.3);">';
+  let h='<div style="background:#fff;border-radius:12px;padding:24px;width:920px;max-height:86vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 8px 40px rgba(0,0,0,.3);">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">';
-  h+='<h3 style="margin:0;font-size:15px;">✂ 자동분할 확인 ('+proposals.length+'건)</h3>';
+  h+='<h3 style="margin:0;font-size:15px;">✂ 자동분할 확인 — 매칭 '+proposals.length+'건 / 미매칭 '+unmatched.length+'건</h3>';
   h+='<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="_splChkAll" checked> 전체선택</label>';
   h+='</div>';
-  h+='<div style="font-size:11px;color:#1d4ed8;background:#eff6ff;border-radius:6px;padding:8px 12px;flex-shrink:0;">각 행에 분할행 2개 생성: <b>수수료 입금</b> + <b>수수료 출금 (지급수수료 / 이체수수료 / 공통)</b></div>';
-  h+='<div style="overflow-y:auto;flex:1;border:1px solid #e5e5e5;border-radius:6px;">';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-  h+='<thead style="background:#f9f9f9;"><tr>';
-  ['','거래일시','기재내용','지급 총액','수수료','계좌'].forEach(t=>{
-    h+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:left;position:sticky;top:0;background:#f9f9f9;white-space:nowrap;">'+t+'</th>';
-  });
-  h+='</tr></thead><tbody>';
-  proposals.forEach((p,i)=>{
-    h+='<tr style="border-bottom:1px solid #f0f0f0;background:'+(i%2?'#fafafa':'#fff')+'">';
-    h+='<td style="padding:7px 8px;"><input type="checkbox" class="_splRowChk" data-idx="'+i+'" checked></td>';
-    h+='<td style="padding:7px 8px;font-size:11px;color:#666;white-space:nowrap;">'+p.row.date+'</td>';
-    h+='<td style="padding:7px 8px;">'+p.row.desc+'</td>';
-    h+='<td style="padding:7px 8px;text-align:right;color:#c0392b;">'+Number(p.amount+p.fee).toLocaleString()+'원</td>';
-    h+='<td style="padding:7px 8px;text-align:right;color:#2563eb;font-weight:600;">'+Number(p.fee).toLocaleString()+'원</td>';
-    h+='<td style="padding:7px 8px;color:#555;">'+p.row.wallet+'</td>';
-    h+='</tr>';
-  });
-  h+='</tbody></table></div>';
+
+  // ── 매칭 목록
+  if(proposals.length){
+    h+='<div style="font-size:11px;color:#1d4ed8;background:#eff6ff;border-radius:6px;padding:7px 12px;flex-shrink:0;">✅ 매칭 항목: 분할행 2개 생성 → <b>수수료 입금</b> + <b>수수료 출금 (지급수수료 / 이체수수료 / 공통)</b></div>';
+    h+='<div style="overflow-y:auto;max-height:320px;border:1px solid #e5e5e5;border-radius:6px;flex-shrink:0;">';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    h+='<thead style="background:#f9f9f9;"><tr>';
+    ['','거래일시','기재내용','지급 총액','수수료','계좌','비고'].forEach(t=>
+      h+='<th style="padding:7px 8px;border-bottom:1px solid #e5e5e5;text-align:left;position:sticky;top:0;background:#f9f9f9;white-space:nowrap;">'+t+'</th>'
+    );
+    h+='</tr></thead><tbody>';
+    proposals.forEach((p,i)=>{
+      h+='<tr style="border-bottom:1px solid #f0f0f0;background:'+(i%2?'#fafafa':'#fff')+'">';
+      h+='<td style="padding:6px 8px;"><input type="checkbox" class="_splRowChk" data-idx="'+i+'" checked></td>';
+      h+='<td style="padding:6px 8px;font-size:11px;color:#666;white-space:nowrap;">'+p.row.date+'</td>';
+      h+='<td style="padding:6px 8px;">'+p.row.desc+'</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#c0392b;">'+Number(p.amount+p.fee).toLocaleString()+'원</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#2563eb;font-weight:600;">'+Number(p.fee).toLocaleString()+'원</td>';
+      h+='<td style="padding:6px 8px;color:#555;">'+p.row.wallet+'</td>';
+      h+='<td style="padding:6px 8px;font-size:10px;color:'+(p.note?'#e07b2a':'#aaa')+'">'+(p.note||'정확히 매칭')+'</td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+
+  // ── 미매칭 목록
+  if(unmatched.length){
+    h+='<div style="font-size:11px;color:#b45309;background:#fff8e6;border-radius:6px;padding:7px 12px;flex-shrink:0;">❌ 미매칭 항목: 가계부에서 해당 행을 찾지 못했습니다. 원인을 확인하세요.</div>';
+    h+='<div style="overflow-y:auto;max-height:200px;border:1px solid #f0d9b5;border-radius:6px;flex-shrink:0;">';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    h+='<thead style="background:#fffbf0;"><tr>';
+    ['이체일시','계좌번호','이체금액+수수료','수수료','통장표시','❌ 실패 원인'].forEach(t=>
+      h+='<th style="padding:7px 8px;border-bottom:1px solid #f0d9b5;text-align:left;position:sticky;top:0;background:#fffbf0;white-space:nowrap;">'+t+'</th>'
+    );
+    h+='</tr></thead><tbody>';
+    unmatched.forEach((u,i)=>{
+      h+='<tr style="border-bottom:1px solid #fef3e0;background:'+(i%2?'#fffdf5':'#fff')+'">';
+      h+='<td style="padding:6px 8px;white-space:nowrap;">'+u.date+'</td>';
+      h+='<td style="padding:6px 8px;font-size:11px;color:#666;">'+u.acctNo+'<br><span style="color:#b45309">'+(u.wallet||'계좌 미등록')+'</span></td>';
+      h+='<td style="padding:6px 8px;text-align:right;">'+Number(u.total).toLocaleString()+'원</td>';
+      h+='<td style="padding:6px 8px;text-align:right;color:#2563eb;">'+Number(u.fee).toLocaleString()+'원</td>';
+      h+='<td style="padding:6px 8px;">'+u.desc+'</td>';
+      h+='<td style="padding:6px 8px;color:#c0392b;font-weight:600;">'+u.reason+'</td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+
   h+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;">';
   h+='<button id="_splCancelBtn" style="padding:8px 22px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;font-size:13px;">취소</button>';
-  h+='<button id="_splApplyBtn" style="padding:8px 22px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-size:13px;">선택 항목 분할 적용</button>';
+  h+=(proposals.length?'<button id="_splApplyBtn" style="padding:8px 22px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-size:13px;">선택 항목 분할 적용</button>':'');
   h+='</div></div>';
   ov.innerHTML=h;
   document.body.appendChild(ov);
