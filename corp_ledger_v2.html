@@ -181,13 +181,15 @@ td.copy-flash{background:#c8f0c8!important}
       <button class="tab" onclick="switchTab('settings')" id="tab-settings-btn">설정</button>
     </div>
 
-    <!-- 공유 기간 선택 바 (거래내역·월별·현금흐름 공통) -->
-    <div id="period-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;background:#f8f8f7;padding:6px 10px;border-radius:6px;border:1px solid #e5e5e5;flex-wrap:wrap">
-      <span style="font-size:11px;color:#555;font-weight:600">📅 기간</span>
-      <select id="sel-year" onchange="setPeriod('year',this.value)" style="font-size:11px;padding:2px 6px"></select>
-      <select id="sel-month" onchange="setPeriod('month',this.value)" style="font-size:11px;padding:2px 6px"></select>
-      <button class="btn" onclick="setPeriod('all','')" style="font-size:11px;padding:2px 8px">전체보기</button>
-      <span id="period-count" style="font-size:10px;color:#aaa;margin-left:4px"></span>
+    <!-- 공유 기간 선택 바 (거래내역·월별·손익계산서·현금흐름 공통) -->
+    <div id="period-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;background:#f8f8f7;padding:7px 12px;border-radius:6px;border:1px solid #e5e5e5;flex-wrap:wrap">
+      <span style="font-size:11px;color:#555;font-weight:600">📅</span>
+      <select id="sel-year" onchange="setPeriodYear(this.value)" style="font-size:11px;padding:2px 6px"></select>
+      <button class="btn" onclick="toggleAllMonths(true)" style="font-size:11px;padding:2px 7px">전체</button>
+      <button class="btn" onclick="toggleAllMonths(false)" style="font-size:11px;padding:2px 7px">해제</button>
+      <span style="color:#ddd;margin:0 2px;">│</span>
+      <span id="month-checks" style="display:flex;gap:4px;flex-wrap:wrap"></span>
+      <span id="period-count" style="font-size:10px;color:#aaa;margin-left:2px"></span>
     </div>
 
     <!-- 거래내역 -->
@@ -535,7 +537,7 @@ let undoStack=[];
 let isDragging=false;
 let _rows=[]; // 현재 필터된 행 캐시
 let filters={}, sortKey='', sortAsc=true;
-let periodYear='', periodMonth='';
+let periodYear=''; let selectedMonths=new Set();
 let prevHL=new Set(); // 이전 하이라이트 td 캐시
 
 const COLORS=['#2563eb','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#65a30d','#db2777','#d97706','#475569'];
@@ -815,9 +817,7 @@ function getFiltered(){
       return m&&m[1]===periodYear;
     });
   }
-  if(periodMonth){
-    rows=rows.filter(r=>String(r.month||'').includes(periodMonth));
-  }
+  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   for(const[k,v] of Object.entries(filters)){
     if(!v)continue;
     if(v==='__empty__')rows=rows.filter(r=>!r[k]||r[k]==='');
@@ -861,68 +861,63 @@ function updateHL(){
 // ══════════════════════════════════════════════
 // 기간 선택
 // ══════════════════════════════════════════════
+function getYearMonths(){
+  const src=ST._metaMonths&&ST._metaMonths.length
+    ? ST._metaMonths
+    : [...new Set(getRows(curCo).map(r=>r.month).filter(Boolean))].sort();
+  return src.filter(m=>{const ym=m.match(/(\d{2})년/);return ym&&'20'+ym[1]===periodYear;});
+}
+
 function renderPeriodSelector(){
-  // 연도·월 목록: _metaMonths 우선, 없으면 로드된 rows 폴백
   const metaMonths=ST._metaMonths||[];
   const srcMonths=metaMonths.length
     ? metaMonths
     : [...new Set(getRows(curCo).map(r=>r.month).filter(Boolean))].sort();
-
-  // 연도 목록 (오름차순)
   const years=[...new Set(srcMonths.map(m=>{
-    const ym=m.match(/(\d{2})년/); return ym?'20'+ym[1]:null;
+    const ym=m.match(/(\d{2})년/);return ym?'20'+ym[1]:null;
   }).filter(Boolean))].sort();
-
-  // periodYear가 비어있으면 가장 최신 연도로 자동 설정
   if(!periodYear&&years.length) periodYear=years[years.length-1];
 
   const selYear=document.getElementById('sel-year');
   if(!selYear)return;
-  // "연도 전체" 없이 연도만
   selYear.innerHTML=years.map(y=>`<option value="${y}"${y===periodYear?' selected':''}>${y}년</option>`).join('');
 
-  // 월 목록: 선택된 연도 기준 (월 전체 옵션 없음)
-  const months=srcMonths.filter(m=>{
-    const ym=m.match(/(\d{2})년/); return ym&&'20'+ym[1]===periodYear;
-  });
+  const yearMonths=getYearMonths();
+  // 연도 변경 시 selectedMonths를 해당 연도 전체로 초기화
+  const hasValid=yearMonths.some(m=>selectedMonths.has(m));
+  if(!hasValid) yearMonths.forEach(m=>selectedMonths.add(m));
 
-  // periodMonth가 현재 연도에 없는 값이면 초기화
-  if(periodMonth&&!months.includes(periodMonth)) periodMonth='';
-
-  const selMonth=document.getElementById('sel-month');
-  if(!selMonth)return;
-  // value=""는 전체보기 상태 표시용
-  selMonth.innerHTML=`<option value=""${periodMonth===''?' selected':''}>전체</option>`+months.map(m=>{
+  const mc=document.getElementById('month-checks');
+  if(!mc)return;
+  mc.innerHTML=yearMonths.map(m=>{
     const lbl=m.match(/(\d{2})월/);
-    return `<option value="${m}"${m===periodMonth?' selected':''}>${lbl?lbl[1]+'월':m}</option>`;
+    const on=selectedMonths.has(m);
+    return`<span onclick="toggleMonth('${m}')" style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid ${on?'#1a1a1a':'#ddd'};background:${on?'#1a1a1a':'#fff'};color:${on?'#fff':'#666'};user-select:none">${lbl?lbl[1]+'월':m}</span>`;
   }).join('');
 
-  // 건수 표시
-  const cnt=getFiltered().length;
   const el=document.getElementById('period-count');
-  if(el)el.textContent=cnt.toLocaleString()+'건';
+  if(el)el.textContent=`${selectedMonths.size}/${yearMonths.length}개월`;
 }
 
-async function setPeriod(type,val){
-  if(type==='all'){
-    // 전체보기: 연도는 유지, 월만 전체
-    periodMonth='';
-    // 선택된 연도의 미로드 월 lazy load
-    if(currentUser&&periodYear){
-      const yearMonths=(ST._metaMonths||[]).filter(m=>{
-        const ym=m.match(/(\d{2})년/); return ym&&'20'+ym[1]===periodYear;
-      });
-      for(const m of yearMonths){
-        if(!_loadedMonths.has(m)) await loadMonthFromFirestore(m);
-      }
-    }
-  }else if(type==='year'){
-    periodYear=val;periodMonth='';
-    if(currentUser) await loadYearFromFirestore(val);
-  }else if(type==='month'){
-    periodMonth=val;
-    if(currentUser&&val) await loadMonthFromFirestore(val);
-  }
+function toggleMonth(m){
+  if(selectedMonths.has(m)) selectedMonths.delete(m);
+  else selectedMonths.add(m);
+  renderPeriodSelector();
+  renderCurTab();
+}
+
+function toggleAllMonths(all){
+  const ym=getYearMonths();
+  selectedMonths=new Set(all?ym:[]);
+  renderPeriodSelector();
+  renderCurTab();
+}
+
+async function setPeriodYear(year){
+  periodYear=year;
+  selectedMonths=new Set();
+  if(currentUser) await loadYearFromFirestore(year);
+  renderPeriodSelector();
   renderCurTab();
 }
 
@@ -1614,8 +1609,8 @@ function switchTab(t){
   });
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','learn','import','settings'][i]===t));
   const pb=document.getElementById('period-bar');
-  if(pb) pb.style.display=['ledger','monthly','cashflow'].includes(t)?'':'none';
-  if(['ledger','monthly','cashflow'].includes(t)) renderPeriodSelector();
+  if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
+  if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
   renderCurTab();
 }
 function renderCurTab(){
@@ -1633,7 +1628,7 @@ function renderCurTab(){
 function renderMonthly(){
   let rows=getRows(curCo);
   if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
-  if(periodMonth) rows=rows.filter(r=>r.month===periodMonth);
+  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const map={};
   rows.forEach(r=>{const m=r.month||'미분류';if(!map[m])map[m]={i:0,e:0,b:{}};map[m].i+=num(r.income);map[m].e+=num(r.expense);const a=r.cat1||'미분류';if(!map[m].b[a])map[m].b[a]={i:0,e:0};map[m].b[a].i+=num(r.income);map[m].b[a].e+=num(r.expense);});
   document.getElementById('monthly-content').innerHTML=Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([m,d])=>`<div class="rm"><div class="rm-hd"><span style="font-weight:700;font-size:12px">${m}</span><span style="display:flex;gap:10px;font-size:11px"><span class="g">입금 ${fmt(d.i)}</span><span class="r">지급 ${fmt(d.e)}</span><span style="font-weight:700;color:${d.i-d.e>=0?'#1a7a4a':'#c0392b'}">순이익 ${fmt(d.i-d.e)}</span></span></div><div class="rm-body"><table style="border-collapse:collapse;width:100%"><thead><tr><th style="background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">계정과목</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">입금</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">지급</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">순이익</th></tr></thead><tbody>${Object.entries(d.b).map(([a,v])=>`<tr><td style="padding:4px 8px;font-size:11px;border:1px solid #f5f5f5">${a}</td><td style="text-align:right;padding:4px 8px;font-size:11px;color:#1a7a4a;border:1px solid #f5f5f5">${fmt(v.i)}</td><td style="text-align:right;padding:4px 8px;font-size:11px;color:#c0392b;border:1px solid #f5f5f5">${fmt(v.e)}</td><td style="text-align:right;padding:4px 8px;font-size:11px;font-weight:600;color:${v.i-v.e>=0?'#1a7a4a':'#c0392b'};border:1px solid #f5f5f5">${fmt(v.i-v.e)}</td></tr>`).join('')}</tbody></table></div></div>`).join('')||'<p style="color:#aaa;font-size:12px">없음</p>';
@@ -1676,7 +1671,9 @@ function plDrop(e){
 }
 
 function renderPL(){
-  const rows=getReportRows(curCo);
+  let rows=getReportRows(curCo);
+  if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
+  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
   if(!months.length){document.getElementById('pl-content').innerHTML='<p style="color:#aaa;font-size:12px">데이터가 없습니다.</p>';return;}
   const ac=getAc(curCo);
@@ -1771,7 +1768,7 @@ function renderPL(){
 function renderCashflow(){
   let rows=getRows(curCo);
   if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
-  if(periodMonth) rows=rows.filter(r=>r.month===periodMonth);
+  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
   if(!months.length){document.getElementById('cashflow-content').innerHTML='<p style="color:#aaa;font-size:12px">없음</p>';return;}
 
