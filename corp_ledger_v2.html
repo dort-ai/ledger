@@ -1676,10 +1676,17 @@ function renderPL(){
     return`<tr class="r2"><td></td><td style="padding-left:12px">${c2}</td>${vs.map(v=>nc(v)).join('')}${nc(g)}</tr>`;
   }).join('');
 
+  // 계산행 전용 셀: 음수면 (숫자) 괄호 표기, 절대값 아님
+  const ncc=(v,bold=true)=>{
+    const col=v>0?'#1a7a4a':v<0?'#c0392b':'#aaa';
+    const disp=v>0?fmt(v):v<0?`(${fmt(Math.abs(v))})`:'-';
+    return`<td class="nm" style="color:${col};${bold?'font-weight:700;':''}">${disp}</td>`;
+  };
+
   // 계산 행 (매출이익·영업이익·당기순이익, 노란 배경)
   const calcRow=(label,tots)=>{
     const g=tots.reduce((s,v)=>s+v,0);
-    return`<tr class="r-calc"><td colspan="2"><b>${label}</b></td>${tots.map(v=>nc(v,true)).join('')}${nc(g,true)}</tr>`;
+    return`<tr class="r-calc"><td colspan="2"><b>${label}</b></td>${tots.map(v=>ncc(v)).join('')}${ncc(g)}</tr>`;
   };
 
   // 각 섹션 월별 합계
