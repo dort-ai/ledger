@@ -185,11 +185,16 @@ td.copy-flash{background:#c8f0c8!important}
     <div id="period-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;background:#f8f8f7;padding:7px 12px;border-radius:6px;border:1px solid #e5e5e5;flex-wrap:wrap">
       <span style="font-size:11px;color:#555;font-weight:600">📅</span>
       <select id="sel-year" onchange="setPeriodYear(this.value)" style="font-size:11px;padding:2px 6px"></select>
-      <button class="btn" onclick="toggleAllMonths(true)" style="font-size:11px;padding:2px 7px">전체</button>
-      <button class="btn" onclick="toggleAllMonths(false)" style="font-size:11px;padding:2px 7px">해제</button>
-      <span style="color:#ddd;margin:0 2px;">│</span>
-      <span id="month-checks" style="display:flex;gap:4px;flex-wrap:wrap"></span>
-      <span id="period-count" style="font-size:10px;color:#aaa;margin-left:2px"></span>
+      <!-- 거래내역 전용: 단일 월 드롭다운 -->
+      <select id="sel-month" onchange="setPeriodMonth(this.value)" style="font-size:11px;padding:2px 6px;display:none"></select>
+      <!-- 월별/손익/현금흐름 전용: 다중 월 토글 -->
+      <span id="month-toggle-wrap" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <button class="btn" onclick="toggleAllMonths(true)" style="font-size:11px;padding:2px 7px">전체</button>
+        <button class="btn" onclick="toggleAllMonths(false)" style="font-size:11px;padding:2px 7px">해제</button>
+        <span style="color:#ddd;margin:0 2px;">│</span>
+        <span id="month-checks" style="display:flex;gap:4px;flex-wrap:wrap"></span>
+        <span id="period-count" style="font-size:10px;color:#aaa;margin-left:2px"></span>
+      </span>
     </div>
 
     <!-- 거래내역 -->
@@ -537,7 +542,7 @@ let undoStack=[];
 let isDragging=false;
 let _rows=[]; // 현재 필터된 행 캐시
 let filters={}, sortKey='', sortAsc=true;
-let periodYear=''; let selectedMonths=new Set();
+let periodYear=''; let periodMonth=''; let selectedMonths=new Set();
 let prevHL=new Set(); // 이전 하이라이트 td 캐시
 
 const COLORS=['#2563eb','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#65a30d','#db2777','#d97706','#475569'];
@@ -817,7 +822,7 @@ function getFiltered(){
       return m&&m[1]===periodYear;
     });
   }
-  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
+  if(periodMonth) rows=rows.filter(r=>r.month===periodMonth);
   for(const[k,v] of Object.entries(filters)){
     if(!v)continue;
     if(v==='__empty__')rows=rows.filter(r=>!r[k]||r[k]==='');
@@ -883,21 +888,33 @@ function renderPeriodSelector(){
   selYear.innerHTML=years.map(y=>`<option value="${y}"${y===periodYear?' selected':''}>${y}년</option>`).join('');
 
   const yearMonths=getYearMonths();
-  // 연도 변경 시 selectedMonths를 해당 연도 전체로 초기화
-  const hasValid=yearMonths.some(m=>selectedMonths.has(m));
-  if(!hasValid) yearMonths.forEach(m=>selectedMonths.add(m));
+  const isLedger=curTab==='ledger';
+  const selMonth=document.getElementById('sel-month');
+  const toggleWrap=document.getElementById('month-toggle-wrap');
+  if(selMonth) selMonth.style.display=isLedger?'':'none';
+  if(toggleWrap) toggleWrap.style.display=isLedger?'none':'flex';
 
-  const mc=document.getElementById('month-checks');
-  if(!mc)return;
-  mc.innerHTML=yearMonths.map(m=>{
-    const lbl=m.match(/(\d{2})월/);
-    const on=selectedMonths.has(m);
-    return`<span onclick="toggleMonth('${m}')" style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid ${on?'#1a1a1a':'#ddd'};background:${on?'#1a1a1a':'#fff'};color:${on?'#fff':'#666'};user-select:none">${lbl?lbl[1]+'월':m}</span>`;
-  }).join('');
-
-  const el=document.getElementById('period-count');
-  if(el)el.textContent=`${selectedMonths.size}/${yearMonths.length}개월`;
+  if(isLedger){
+    if(!periodMonth&&yearMonths.length) periodMonth=yearMonths[yearMonths.length-1];
+    if(selMonth) selMonth.innerHTML=`<option value="">전체</option>`+yearMonths.map(m=>{
+      const lbl=m.match(/(\d{2})월/);
+      return`<option value="${m}"${m===periodMonth?' selected':''}>${lbl?lbl[1]+'월':m}</option>`;
+    }).join('');
+  } else {
+    const hasValid=yearMonths.some(m=>selectedMonths.has(m));
+    if(!hasValid) yearMonths.forEach(m=>selectedMonths.add(m));
+    const mc=document.getElementById('month-checks');
+    if(mc) mc.innerHTML=yearMonths.map(m=>{
+      const lbl=m.match(/(\d{2})월/);
+      const on=selectedMonths.has(m);
+      return`<span onclick="toggleMonth('${m}')" style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid ${on?'#1a1a1a':'#ddd'};background:${on?'#1a1a1a':'#fff'};color:${on?'#fff':'#666'};user-select:none">${lbl?lbl[1]+'월':m}</span>`;
+    }).join('');
+    const el=document.getElementById('period-count');
+    if(el)el.textContent=`${selectedMonths.size}/${yearMonths.length}개월`;
+  }
 }
+
+function setPeriodMonth(m){ periodMonth=m; renderCurTab(); }
 
 function toggleMonth(m){
   if(selectedMonths.has(m)) selectedMonths.delete(m);
@@ -915,6 +932,7 @@ function toggleAllMonths(all){
 
 async function setPeriodYear(year){
   periodYear=year;
+  periodMonth='';
   selectedMonths=new Set();
   if(currentUser) await loadYearFromFirestore(year);
   renderPeriodSelector();
