@@ -122,6 +122,7 @@ td.copy-flash{background:#c8f0c8!important}
 .pl-tbl tr.r1 td{background:#f5f5f3;font-weight:700}
 .pl-tbl tr.r2 td{background:#fafafa}
 .pl-tbl tr.rt td{background:#e8f0e8;font-weight:700;border-top:2px solid #999}
+.pl-tbl tr.r-calc td{background:#fef3c7;font-weight:700;border-top:2px solid #d97706;border-bottom:2px solid #d97706}
 .pl-tbl td.nm{text-align:right;font-variant-numeric:tabular-nums}
 .hint{font-size:10px;color:#aaa;margin-top:5px}
 </style>
@@ -1629,30 +1630,88 @@ function renderMonthly(){
 }
 
 function renderPL(){
-  const rows=getRows(curCo);
+  const rows=getReportRows(curCo);
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
+  if(!months.length){document.getElementById('pl-content').innerHTML='<p style="color:#aaa;font-size:12px">데이터가 없습니다.</p>';return;}
   const ac=getAc(curCo);
-  const cat1Keys=Object.keys(ac).filter(k=>k!=='_cat4');
-  if(!months.length||!cat1Keys.length){document.getElementById('pl-content').innerHTML='<p style="color:#aaa;font-size:12px">데이터가 없습니다.</p>';return;}
+
+  // cat1 → cat2 → month → net (income - expense)
   const agg={};
-  rows.forEach(r=>{const c1=r.cat1||'미분류',c2=r.cat2||'(미분류)',m=r.month||'미분류';if(!agg[c1])agg[c1]={};if(!agg[c1][c2])agg[c1][c2]={};agg[c1][c2][m]=(agg[c1][c2][m]||0)+num(r.income)-num(r.expense);});
-  const nc=v=>`<td class="nm" style="color:${v>0?'#1a7a4a':v<0?'#c0392b':'#999'}">${v!==0?fmt(v):'-'}</td>`;
-  let html=`<div style="overflow-x:auto"><table class="pl-tbl"><thead><tr><th style="min-width:100px">대분류</th><th style="min-width:90px">중분류</th>${months.map(m=>`<th style="min-width:80px;text-align:right">${m}</th>`).join('')}<th style="min-width:80px;text-align:right">합계</th></tr></thead><tbody>`;
-  let gt=months.map(()=>0);
-  for(const c1 of cat1Keys){
-    if(!agg[c1])continue;
-    const c2ks=Object.keys(agg[c1]);
-    const c1t=months.map(m=>c2ks.reduce((s,c2)=>s+(agg[c1][c2][m]||0),0));
-    const c1s=c1t.reduce((s,v)=>s+v,0);
-    html+=`<tr class="r1"><td><b>${c1}</b></td><td></td>${c1t.map(v=>nc(v)).join('')}${nc(c1s)}</tr>`;
-    gt=gt.map((v,i)=>v+c1t[i]);
-    for(const c2 of c2ks){
-      const vs=months.map(m=>agg[c1][c2][m]||0);
-      const s=vs.reduce((a,v)=>a+v,0);
-      html+=`<tr class="r2"><td style="padding-left:18px;color:#777;font-size:10px">${c1}</td><td>${c2}</td>${vs.map(v=>nc(v)).join('')}${nc(s)}</tr>`;
-    }
-  }
-  html+=`<tr class="rt"><td colspan="2"><b>합계</b></td>${gt.map(v=>nc(v)).join('')}${nc(gt.reduce((s,v)=>s+v,0))}</tr></tbody></table></div>`;
+  rows.forEach(r=>{
+    const c1=r.cat1||'미분류',c2=r.cat2||'(미분류)',m=r.month||'미분류';
+    if(!agg[c1])agg[c1]={};
+    if(!agg[c1][c2])agg[c1][c2]={};
+    agg[c1][c2][m]=(agg[c1][c2][m]||0)+num(r.income)-num(r.expense);
+  });
+
+  // 월별 합계 (net)
+  const secT=cat1=>months.map(m=>Object.values(agg[cat1]||{}).reduce((s,c2m)=>s+(c2m[m]||0),0));
+
+  // 계정과목 구조 순서대로 cat2 정렬, 없는 것은 뒤에
+  const getCat2s=cat1=>{
+    if(!agg[cat1])return[];
+    const acOrd=Object.keys(ac[cat1]||{}).filter(k=>k!=='_cat4');
+    const dataKeys=Object.keys(agg[cat1]);
+    return[...acOrd.filter(k=>dataKeys.includes(k)),...dataKeys.filter(k=>!acOrd.includes(k))];
+  };
+
+  // 숫자 셀: 절대값 표시, 원래 부호로 색상
+  const nc=(v,bold=false)=>{
+    const col=v>0?'#1a7a4a':v<0?'#c0392b':'#aaa';
+    const disp=v!==0?fmt(Math.abs(v)):'-';
+    return`<td class="nm" style="color:${col};${bold?'font-weight:700;':''}">${disp}</td>`;
+  };
+
+  // 섹션 헤더 행 (대분류, 굵게)
+  const secHdr=(label,tots)=>{
+    const g=tots.reduce((s,v)=>s+v,0);
+    return`<tr class="r1"><td><b>${label}</b></td><td></td>${tots.map(v=>nc(v,true)).join('')}${nc(g,true)}</tr>`;
+  };
+
+  // 중분류 상세 행
+  const detRows=cat1=>getCat2s(cat1).map(c2=>{
+    const vs=months.map(m=>agg[cat1][c2][m]||0);
+    const g=vs.reduce((s,v)=>s+v,0);
+    if(vs.every(v=>v===0))return'';
+    return`<tr class="r2"><td></td><td style="padding-left:12px">${c2}</td>${vs.map(v=>nc(v)).join('')}${nc(g)}</tr>`;
+  }).join('');
+
+  // 계산 행 (매출이익·영업이익·당기순이익, 노란 배경)
+  const calcRow=(label,tots)=>{
+    const g=tots.reduce((s,v)=>s+v,0);
+    return`<tr class="r-calc"><td colspan="2"><b>${label}</b></td>${tots.map(v=>nc(v,true)).join('')}${nc(g,true)}</tr>`;
+  };
+
+  // 각 섹션 월별 합계
+  const 매출액T  =secT('매출액');
+  const 매출원가T =secT('매출원가');
+  const 판관비T  =secT('판매비와관리비');
+  const 영업외수T =secT('영업외수익');
+  const 영업외비T =secT('영업외비용');
+  const 법인세T  =secT('법인세');
+
+  // 계산값 (net 기준: 음수 섹션은 자연스럽게 빼짐)
+  const 매출이익T =months.map((_,i)=>매출액T[i]+매출원가T[i]);
+  const 영업이익T =months.map((_,i)=>매출이익T[i]+판관비T[i]);
+  const 순이익T  =months.map((_,i)=>영업이익T[i]+영업외수T[i]+영업외비T[i]+법인세T[i]);
+
+  const mth=months.map(m=>`<th style="min-width:80px;text-align:right">${m}</th>`).join('');
+  let html=`<div style="overflow-x:auto"><table class="pl-tbl"><thead><tr>
+    <th style="min-width:120px">구분</th><th style="min-width:120px">항목</th>${mth}
+    <th style="min-width:90px;text-align:right">합계</th>
+  </tr></thead><tbody>`;
+
+  html+=secHdr('Ⅰ. 매출액',매출액T)+detRows('매출액');
+  html+=secHdr('Ⅱ. 매출원가',매출원가T)+detRows('매출원가');
+  html+=calcRow('Ⅲ. 매출이익',매출이익T);
+  html+=secHdr('Ⅳ. 판매비와 관리비',판관비T)+detRows('판매비와관리비');
+  html+=calcRow('Ⅴ. 영업이익',영업이익T);
+  html+=secHdr('Ⅵ. 영업외수익',영업외수T)+detRows('영업외수익');
+  html+=secHdr('Ⅶ. 영업외비용',영업외비T)+detRows('영업외비용');
+  html+=secHdr('Ⅷ. 법인세',법인세T)+detRows('법인세');
+  html+=calcRow('Ⅸ. 당기순이익',순이익T);
+
+  html+='</tbody></table></div>';
   document.getElementById('pl-content').innerHTML=html;
 }
 
