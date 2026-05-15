@@ -815,13 +815,6 @@ function doUndo(){
 
 function getFiltered(){
   let rows=getRows(curCo);
-  // 기간 필터 (연도·월 선택)
-  if(periodYear){
-    rows=rows.filter(r=>{
-      const m=String(r.date||r.month||'').match(/(\d{4})/);
-      return m&&m[1]===periodYear;
-    });
-  }
   if(periodMonth) rows=rows.filter(r=>r.month===periodMonth);
   for(const[k,v] of Object.entries(filters)){
     if(!v)continue;
@@ -895,7 +888,6 @@ function renderPeriodSelector(){
   if(toggleWrap) toggleWrap.style.display=isLedger?'none':'flex';
 
   if(isLedger){
-    if(!periodMonth&&yearMonths.length) periodMonth=yearMonths[yearMonths.length-1];
     if(selMonth) selMonth.innerHTML=`<option value="">전체</option>`+yearMonths.map(m=>{
       const lbl=m.match(/(\d{2})월/);
       return`<option value="${m}"${m===periodMonth?' selected':''}>${lbl?lbl[1]+'월':m}</option>`;
@@ -1645,7 +1637,6 @@ function renderCurTab(){
 // ══════════════════════════════════════════════
 function renderMonthly(){
   let rows=getRows(curCo);
-  if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
   if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const map={};
   rows.forEach(r=>{const m=r.month||'미분류';if(!map[m])map[m]={i:0,e:0,b:{}};map[m].i+=num(r.income);map[m].e+=num(r.expense);const a=r.cat1||'미분류';if(!map[m].b[a])map[m].b[a]={i:0,e:0};map[m].b[a].i+=num(r.income);map[m].b[a].e+=num(r.expense);});
@@ -1690,7 +1681,6 @@ function plDrop(e){
 
 function renderPL(){
   let rows=getReportRows(curCo);
-  if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
   if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
   if(!months.length){document.getElementById('pl-content').innerHTML='<p style="color:#aaa;font-size:12px">데이터가 없습니다.</p>';return;}
@@ -1785,7 +1775,6 @@ function renderPL(){
 
 function renderCashflow(){
   let rows=getRows(curCo);
-  if(periodYear) rows=rows.filter(r=>{const ym=String(r.date||r.month||'').match(/(\d{4})/);return ym&&ym[1]===periodYear;});
   if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
   if(!months.length){document.getElementById('cashflow-content').innerHTML='<p style="color:#aaa;font-size:12px">없음</p>';return;}
