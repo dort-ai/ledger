@@ -686,6 +686,7 @@ async function saveToFirestore(){
       accounts:    ST.accounts||{},
       wallets:     ST.wallets||{},
       cfMaps:      ST.cfMaps||{},
+      shareTokens: ST.shareTokens||{},
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -809,9 +810,10 @@ async function loadFromFirestore(){
     ST.companies   =m.companies   ||[];
     ST.fixedRules  =m.learnRules  ||[];
     ST.learnUploads=m.learnUploads||[];
-    ST.accounts    =m.accounts    ||{};
-    ST.wallets     =m.wallets     ||{};
-    ST.cfMaps      =m.cfMaps      ||{};
+    ST.accounts      =m.accounts      ||{};
+    ST.wallets       =m.wallets       ||{};
+    ST.cfMaps        =m.cfMaps        ||{};
+    ST.shareTokens   =m.shareTokens   ||{};
     ST._metaMonths =(m.months     ||[]).sort();
 
     // 가장 최근 월 로드 — 빈 월이면 이전 월로 거슬러 올라가 데이터 찾기 (최대 6개월)
@@ -870,19 +872,28 @@ function renderApp(){
   }
 }
 
+// URL 파라미터 자동 감지 (?uid=XXX&token=YYY)
+{
+  const _p=new URLSearchParams(location.search);
+  const _pu=_p.get('uid'), _pt=_p.get('token');
+  if(_pu&&_pt){window._pendingShareUid=_pu;window._pendingShareToken=_pt;}
+}
+
 // 앱 진입점: Auth 상태 감지
 auth.onAuthStateChanged(async user=>{
+  // URL/입력 코드로 접근 시 익명 로그인 자동 시작
+  if(!user&&window._pendingShareUid){
+    auth.signInAnonymously().catch(e=>alert('접속 실패: '+e.message));
+    return;
+  }
   if(user){
     currentUser=user;
-    // 공유 토큰 검증 (익명 로그인 후 진입한 경우)
-    if(_shareOwnerUid===null && user.isAnonymous){
-      // _pendingToken이 있으면 검증 시도
-      if(window._pendingToken){
-        const ok=await _resolveShareToken(window._pendingToken);
-        if(!ok){ auth.signOut(); return; }
-      } else {
-        auth.signOut(); return;
-      }
+    // 익명 로그인 후 토큰 검증
+    if(user.isAnonymous&&_shareOwnerUid===null){
+      if(window._pendingShareUid&&window._pendingShareToken){
+        const ok=await _resolveShareToken(window._pendingShareUid,window._pendingShareToken);
+        if(!ok){auth.signOut();return;}
+      }else{auth.signOut();return;}
     }
     document.getElementById('login-overlay').style.display='none';
     const info=document.getElementById('user-info');
@@ -900,36 +911,40 @@ auth.onAuthStateChanged(async user=>{
     await loadFromFirestore();
   }else{
     currentUser=null;
-    document.getElementById('login-overlay').style.display='flex';
+    if(!window._pendingShareUid) document.getElementById('login-overlay').style.display='flex';
   }
 });
 
-// 공유 토큰 검증 — ownerUid + mode 설정
-async function _resolveShareToken(token){
+// 공유 토큰 검증 — users/{ownerUid} 문서의 shareTokens 필드에서 확인
+async function _resolveShareToken(ownerUid,token){
   try{
-    const snap=await db.doc(`shareTokens/${token}`).get();
-    if(!snap.exists){alert('유효하지 않은 공유 코드입니다.');return false;}
-    const d=snap.data();
-    _shareOwnerUid=d.ownerUid;
-    _shareMode=d.mode||'read';
+    const snap=await db.doc(`users/${ownerUid}`).get();
+    if(!snap.exists){alert('공유 링크가 유효하지 않습니다.');return false;}
+    const tokens=snap.data().shareTokens||{};
+    if(!tokens[token]){alert('공유 코드가 만료되었거나 유효하지 않습니다.');return false;}
+    _shareOwnerUid=ownerUid;
+    _shareMode=tokens[token].mode||'read';
     return true;
   }catch(e){
-    alert('공유 코드 확인 실패: '+e.message);
+    if(e.code==='permission-denied') alert('접근 권한 오류입니다.\nFirebase Console → Firestore → 규칙에서 읽기 허용이 필요합니다.');
+    else alert('공유 코드 확인 실패: '+e.message);
     return false;
   }
 }
 
-// 로그인 화면에서 공유 코드 직접 입력
-async function enterWithToken(){
-  const token=(document.getElementById('token-input').value||'').trim();
-  if(!token){alert('공유 코드를 입력하세요.');return;}
-  window._pendingToken=token;
-  // 토큰 먼저 확인 후 익명 로그인
-  const tmpSnap=await db.doc(`shareTokens/${token}`).get().catch(()=>null);
-  if(!tmpSnap||!tmpSnap.exists){alert('유효하지 않은 공유 코드입니다.');return;}
-  const d=tmpSnap.data();
-  _shareOwnerUid=d.ownerUid;
-  _shareMode=d.mode||'read';
+// 로그인 화면 공유 코드 입력 — URL 전체 붙여넣기 또는 uid:token 형식 지원
+function enterWithToken(){
+  let input=(document.getElementById('token-input').value||'').trim();
+  let ownerUid='',token='';
+  try{
+    const u=new URL(input.includes('://')?input:'https://x/?'+input);
+    ownerUid=u.searchParams.get('uid')||'';
+    token=u.searchParams.get('token')||'';
+  }catch(e){}
+  if(!ownerUid&&input.includes(':')){const parts=input.split(':');ownerUid=parts[0];token=parts[1]||'';}
+  if(!ownerUid||!token){alert('올바른 공유 링크를 붙여넣거나 uid:token 형식의 코드를 입력하세요.');return;}
+  window._pendingShareUid=ownerUid;
+  window._pendingShareToken=token;
   auth.signInAnonymously().catch(e=>alert('접속 실패: '+e.message));
 }
 
@@ -2501,39 +2516,41 @@ function renderSettings(){
     k1s.map(c1=>{const sub=ac[c1]||{};return`<div style="margin-bottom:5px;padding:7px;border:1px solid #e5e5e5;border-radius:6px"><div class="tree-item"><span style="font-weight:700;font-size:11px">📁 ${c1}</span><button class="btn-sm btn-d" onclick="delCat1('${c1}')">삭제</button></div><div class="tree-sub">${Object.entries(sub).filter(([k])=>k!=='_cat4').map(([c2,arr])=>`<div class="tree-item"><span style="font-size:11px;color:#444">└ ${c2}</span><button class="btn-sm btn-d" onclick="delCat2('${c1}','${c2}')">삭제</button></div><div class="tree-sub2">${(arr||[]).map(c3=>`<div class="tree-item"><span style="font-size:10px;color:#888">└ ${c3}</span><button class="btn-sm btn-d" onclick="delCat3('${c1}','${c2}','${c3}')">삭제</button></div>`).join('')}</div>`).join('')}</div></div>`;}).join('')+
     (c4.length?`<div style="margin-top:5px;padding:7px;border:1px solid #e5e5e5;border-radius:6px"><div class="tree-item"><span style="font-weight:700;font-size:11px">🏷 소속</span></div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${c4.map(c=>`<span style="background:#f0f0f0;padding:2px 7px;border-radius:3px;font-size:10px">${c} <button class="btn-sm btn-d" onclick="delC4('${c}')" style="border:none;background:none;cursor:pointer;padding:0">✕</button></span>`).join('')}</div></div>`:'');
 }
-async function renderShareTokens(){
+function renderShareTokens(){
   const el=document.getElementById('share-tokens-list');
   if(!el||!currentUser) return;
-  try{
-    const snaps=await db.collection('shareTokens').where('ownerUid','==',currentUser.uid).get();
-    const tokens=snaps.docs.map(d=>({id:d.id,...d.data()}));
-    const base=location.href.split('?')[0];
-    el.innerHTML=tokens.length===0
-      ?'<p style="font-size:11px;color:#aaa;margin-bottom:4px">생성된 링크 없음</p>'
-      :tokens.map(t=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f0f0f0">
+  const tokens=Object.entries(ST.shareTokens||{});
+  const base=location.href.split('?')[0];
+  const ownerUid=currentUser.uid;
+  el.innerHTML=tokens.length===0
+    ?'<p style="font-size:11px;color:#aaa;margin-bottom:4px">생성된 링크 없음</p>'
+    :tokens.map(([id,t])=>{
+      const url=`${base}?uid=${ownerUid}&token=${id}`;
+      return`<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f0f0f0">
         <span style="font-size:11px;font-weight:600;min-width:60px">${t.label||'(이름없음)'}</span>
         <span class="learn-badge" style="background:${t.mode==='read'?'#f59e0b':'#6366f1'};color:#fff">${t.mode==='read'?'읽기':'쓰기'}</span>
-        <input value="${base}?token=${t.id}" readonly onclick="this.select()" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;background:#f8f8f7;min-width:0">
-        <button class="btn-sm" onclick="navigator.clipboard.writeText('${base}?token=${t.id}').then(()=>alert('복사됨!'))">복사</button>
-        <button class="btn-sm btn-d" onclick="deleteShareToken('${t.id}')">삭제</button>
-      </div>`).join('');
-  }catch(e){el.innerHTML='<p style="font-size:11px;color:#c0392b">로드 실패: '+e.message+'</p>';}
+        <input value="${url}" readonly onclick="this.select()" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;background:#f8f8f7;min-width:0">
+        <button class="btn-sm" onclick="navigator.clipboard.writeText('${url}').then(()=>alert('복사됨!'))">복사</button>
+        <button class="btn-sm btn-d" onclick="deleteShareToken('${id}')">삭제</button>
+      </div>`;
+    }).join('');
 }
-async function createShareToken(){
+function createShareToken(){
   if(!currentUser){alert('로그인 필요');return;}
   const label=(document.getElementById('share-label-inp').value||'').trim()||'공유';
   const mode=document.getElementById('share-mode-sel').value;
   const token=Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);
-  try{
-    await db.doc(`shareTokens/${token}`).set({ownerUid:currentUser.uid,mode,label,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
-    document.getElementById('share-label-inp').value='';
-    renderShareTokens();
-  }catch(e){alert('생성 실패: '+e.message);}
+  if(!ST.shareTokens)ST.shareTokens={};
+  ST.shareTokens[token]={mode,label};
+  save();
+  document.getElementById('share-label-inp').value='';
+  renderShareTokens();
 }
-async function deleteShareToken(tokenId){
+function deleteShareToken(tokenId){
   if(!confirm('이 링크를 삭제하면 더 이상 접근할 수 없습니다. 삭제할까요?'))return;
-  try{await db.doc(`shareTokens/${tokenId}`).delete();renderShareTokens();}
-  catch(e){alert('삭제 실패: '+e.message);}
+  delete ST.shareTokens[tokenId];
+  save();
+  renderShareTokens();
 }
 function upS23(){const c1=document.getElementById('sp13').value;const ac=getAc(curCo);document.getElementById('sp23').innerHTML=`<option value="">중분류 선택...</option>`+Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4').map(c=>`<option>${c}</option>`).join('');}
 function hk(e,type){if(e.shiftKey&&e.key==='Enter'){e.preventDefault();const el=e.target,p=el.selectionStart;el.value=el.value.slice(0,p)+'\n'+el.value.slice(p);el.selectionStart=el.selectionEnd=p+1;}else if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();({wallet:addWallet,cat1:addCat1,cat2:addCat2,cat3:addCat3,cat4:addCat4})[type]?.();}}
