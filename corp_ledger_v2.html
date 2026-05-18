@@ -124,6 +124,8 @@ td.copy-flash{background:#c8f0c8!important}
 .pl-tbl tr.rt td{background:#e8f0e8;font-weight:700;border-top:2px solid #999}
 .pl-tbl tr.r-calc td{background:#fef3c7;font-weight:700;border-top:2px solid #d97706;border-bottom:2px solid #d97706}
 .pl-tbl td.nm{text-align:right;font-variant-numeric:tabular-nums}
+.pl-tbl td.nm.nm-click{cursor:pointer}
+.pl-tbl td.nm.nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
 .pl-tbl tr.r2[draggable]{cursor:grab}
 .pl-tbl tr.r2[draggable]:active{cursor:grabbing}
 .pl-tbl tr.pl-drag-over td{background:#dbeafe !important;border-top:2px solid #2563eb !important}
@@ -224,7 +226,12 @@ td.copy-flash{background:#c8f0c8!important}
     </div>
 
     <div id="tab-monthly" style="display:none"><div id="monthly-content"></div></div>
-    <div id="tab-pl" style="display:none"><div id="pl-content"></div></div>
+    <div id="tab-pl" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+        <button class="btn" id="btn-pl-reorder" onclick="togglePlReorder()">⠿ 순서변경</button>
+      </div>
+      <div id="pl-content"></div>
+    </div>
     <div id="tab-cashflow" style="display:none"><div id="cashflow-content"></div></div>
 
     <!-- 학습데이터 -->
@@ -346,6 +353,18 @@ td.copy-flash{background:#c8f0c8!important}
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 손익계산서 드릴다운 모달 -->
+<div class="overlay" id="pl-drill-ov" onclick="bgClose(event,'pl-drill-ov')">
+  <div class="modal" style="max-width:860px;width:94vw">
+    <div class="modal-hd">
+      <span class="modal-title" id="pl-drill-title"></span>
+      <button class="close-btn" onclick="closeOv('pl-drill-ov')">×</button>
+    </div>
+    <div id="pl-drill-summary" style="display:flex;gap:16px;padding:8px 0 10px;border-bottom:1px solid #eee;margin-bottom:10px;font-size:12px"></div>
+    <div id="pl-drill-body" style="max-height:60vh;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -1628,6 +1647,7 @@ function selectCo(id){
   }
 }
 function switchTab(t){
+  if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
   ['ledger','monthly','pl','cashflow','learn','import','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
@@ -1658,7 +1678,50 @@ function renderMonthly(){
   document.getElementById('monthly-content').innerHTML=Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([m,d])=>`<div class="rm"><div class="rm-hd"><span style="font-weight:700;font-size:12px">${m}</span><span style="display:flex;gap:10px;font-size:11px"><span class="g">입금 ${fmt(d.i)}</span><span class="r">지급 ${fmt(d.e)}</span><span style="font-weight:700;color:${d.i-d.e>=0?'#1a7a4a':'#c0392b'}">순이익 ${fmt(d.i-d.e)}</span></span></div><div class="rm-body"><table style="border-collapse:collapse;width:100%"><thead><tr><th style="background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">계정과목</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">입금</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">지급</th><th style="text-align:right;background:#f8f8f7;padding:4px 8px;font-size:10px;border:1px solid #eee">순이익</th></tr></thead><tbody>${Object.entries(d.b).map(([a,v])=>`<tr><td style="padding:4px 8px;font-size:11px;border:1px solid #f5f5f5">${a}</td><td style="text-align:right;padding:4px 8px;font-size:11px;color:#1a7a4a;border:1px solid #f5f5f5">${fmt(v.i)}</td><td style="text-align:right;padding:4px 8px;font-size:11px;color:#c0392b;border:1px solid #f5f5f5">${fmt(v.e)}</td><td style="text-align:right;padding:4px 8px;font-size:11px;font-weight:600;color:${v.i-v.e>=0?'#1a7a4a':'#c0392b'};border:1px solid #f5f5f5">${fmt(v.i-v.e)}</td></tr>`).join('')}</tbody></table></div></div>`).join('')||'<p style="color:#aaa;font-size:12px">없음</p>';
 }
 
-let _plDragCat1='',_plDragCat2='';
+let _plDragCat1='',_plDragCat2='',_plReordering=false;
+function openPlDrill(td){
+  if(_plReordering) return;
+  const cat1=td.dataset.c1, cat2=td.dataset.c2, month=td.dataset.m;
+  let rows=getReportRows(curCo);
+  if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
+  rows=rows.filter(r=>(r.cat1||'미분류')===cat1);
+  if(cat2) rows=rows.filter(r=>(r.cat2||'(미분류)')===cat2);
+  if(month) rows=rows.filter(r=>r.month===month);
+  const title=(cat2?`${cat1} / ${cat2}`:cat1)+(month?` — ${month}`:'  — 전체');
+  document.getElementById('pl-drill-title').textContent=title;
+  const totI=rows.reduce((s,r)=>s+num(r.income),0);
+  const totE=rows.reduce((s,r)=>s+num(r.expense),0);
+  document.getElementById('pl-drill-summary').innerHTML=
+    `<span style="color:#555">${rows.length}건</span>`+
+    (totI?`<span style="color:#1a7a4a">입금 ${fmt(totI)}</span>`:'')+(totE?`<span style="color:#c0392b">지급 ${fmt(totE)}</span>`:'')+
+    `<span style="font-weight:700;color:${totI-totE>=0?'#1a7a4a':'#c0392b'}">순 ${fmt(totI-totE)}</span>`;
+  document.getElementById('pl-drill-body').innerHTML=rows.length===0
+    ?'<p style="color:#aaa;font-size:12px;padding:20px;text-align:center">내역이 없습니다</p>'
+    :`<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f8f8f7;position:sticky;top:0">
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e5e5e5;white-space:nowrap">날짜</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e5e5e5">기재내용</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e5e5e5;white-space:nowrap">입금</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e5e5e5;white-space:nowrap">지급</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e5e5e5;white-space:nowrap">중분류</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e5e5e5;white-space:nowrap">계좌</th>
+      </tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#fafafa':'#fff'};border-bottom:1px solid #f0f0f0">
+        <td style="padding:5px 8px;color:#888;white-space:nowrap">${(r.date||'').slice(0,10)}</td>
+        <td style="padding:5px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.desc||''}</td>
+        <td style="padding:5px 8px;text-align:right;color:#1a7a4a">${num(r.income)?fmt(num(r.income)):''}</td>
+        <td style="padding:5px 8px;text-align:right;color:#c0392b">${num(r.expense)?fmt(num(r.expense)):''}</td>
+        <td style="padding:5px 8px;color:#888">${r.cat2||''}</td>
+        <td style="padding:5px 8px;color:#888">${r.wallet||''}</td>
+      </tr>`).join('')}</tbody></table>`;
+  document.getElementById('pl-drill-ov').classList.add('show');
+}
+function togglePlReorder(){
+  _plReordering=!_plReordering;
+  const btn=document.getElementById('btn-pl-reorder');
+  if(btn) btn.textContent=_plReordering?'✅ 완료':'⠿ 순서변경';
+  renderPL();
+}
 function plDragStart(e){
   const tr=e.currentTarget;
   _plDragCat1=tr.dataset.cat1; _plDragCat2=tr.dataset.cat2;
@@ -1722,24 +1785,27 @@ function renderPL(){
   };
 
   // 숫자 셀: 절대값 표시, 원래 부호로 색상
-  const nc=(v,bold=false)=>{
+  const nc=(v,bold=false,c1='',c2='',m='')=>{
     const col=v>0?'#1a7a4a':v<0?'#c0392b':'#aaa';
     const disp=v!==0?fmt(Math.abs(v)):'-';
-    return`<td class="nm" style="color:${col};${bold?'font-weight:700;':''}">${disp}</td>`;
+    const drill=(!_plReordering&&c1)?` class="nm nm-click" data-c1="${c1}" data-c2="${c2}" data-m="${m}" onclick="openPlDrill(this)"`:'class="nm"';
+    return`<td ${drill} style="color:${col};${bold?'font-weight:700;':''}">${disp}</td>`;
   };
 
   // 섹션 헤더 행 (대분류, 굵게)
-  const secHdr=(label,tots)=>{
+  const secHdr=(label,tots,cat1='')=>{
     const g=tots.reduce((s,v)=>s+v,0);
-    return`<tr class="r1"><td><b>${label}</b></td>${tots.map(v=>nc(v,true)).join('')}${nc(g,true)}</tr>`;
+    return`<tr class="r1"><td><b>${label}</b></td>${tots.map((v,i)=>nc(v,true,cat1,'',months[i])).join('')}${nc(g,true,cat1,'','')}</tr>`;
   };
 
-  // 중분류 상세 행 (드래그 가능)
+  // 중분류 상세 행 (순서변경 모드일 때만 드래그 가능)
   const detRows=cat1=>getCat2s(cat1).map(c2=>{
     const vs=months.map(m=>agg[cat1][c2][m]||0);
     const g=vs.reduce((s,v)=>s+v,0);
     if(vs.every(v=>v===0))return'';
-    return`<tr class="r2" draggable="true" data-cat1="${cat1}" data-cat2="${c2}" ondragstart="plDragStart(event)" ondragend="plDragEnd(event)" ondragover="plDragOver(event)" ondrop="plDrop(event)"><td style="padding-left:20px;color:#555"><span style="color:#ccc;margin-right:6px;font-size:10px">⠿</span>${c2}</td>${vs.map(v=>nc(v)).join('')}${nc(g)}</tr>`;
+    const dragAttrs=_plReordering?` draggable="true" ondragstart="plDragStart(event)" ondragend="plDragEnd(event)" ondragover="plDragOver(event)" ondrop="plDrop(event)"`:'';
+    const handle=_plReordering?`<span style="color:#ccc;margin-right:6px;font-size:10px;cursor:grab">⠿</span>`:'';
+    return`<tr class="r2" data-cat1="${cat1}" data-cat2="${c2}"${dragAttrs}><td style="padding-left:20px;color:#555">${handle}${c2}</td>${vs.map((v,i)=>nc(v,false,cat1,c2,months[i])).join('')}${nc(g,false,cat1,c2,'')}</tr>`;
   }).join('');
 
   // 계산행 전용 셀: 음수면 (숫자) 괄호 표기, 절대값 아님
@@ -1774,14 +1840,14 @@ function renderPL(){
     <th style="min-width:90px;text-align:right">합계</th>
   </tr></thead><tbody>`;
 
-  html+=secHdr('Ⅰ. 매출액',매출액T)+detRows('매출액');
-  html+=secHdr('Ⅱ. 매출원가',매출원가T)+detRows('매출원가');
+  html+=secHdr('Ⅰ. 매출액',매출액T,'매출액')+detRows('매출액');
+  html+=secHdr('Ⅱ. 매출원가',매출원가T,'매출원가')+detRows('매출원가');
   html+=calcRow('Ⅲ. 매출이익',매출이익T);
-  html+=secHdr('Ⅳ. 판매비와 관리비',판관비T)+detRows('판매비와관리비');
+  html+=secHdr('Ⅳ. 판매비와 관리비',판관비T,'판매비와관리비')+detRows('판매비와관리비');
   html+=calcRow('Ⅴ. 영업이익',영업이익T);
-  html+=secHdr('Ⅵ. 영업외수익',영업외수T)+detRows('영업외수익');
-  html+=secHdr('Ⅶ. 영업외비용',영업외비T)+detRows('영업외비용');
-  html+=secHdr('Ⅷ. 법인세',법인세T)+detRows('법인세');
+  html+=secHdr('Ⅵ. 영업외수익',영업외수T,'영업외수익')+detRows('영업외수익');
+  html+=secHdr('Ⅶ. 영업외비용',영업외비T,'영업외비용')+detRows('영업외비용');
+  html+=secHdr('Ⅷ. 법인세',법인세T,'법인세')+detRows('법인세');
   html+=calcRow('Ⅸ. 당기순이익',순이익T);
 
   html+='</tbody></table></div>';
