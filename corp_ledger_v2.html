@@ -128,6 +128,10 @@ td.copy-flash{background:#c8f0c8!important}
 .pl-tbl td.nm.nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
 .cf-nm-click{cursor:pointer}
 .cf-nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
+.ro-hide{display:none!important}
+body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn{display:none!important}
+#share-badge{display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;z-index:8000;pointer-events:none}
+#share-badge.show{display:block}
 .pl-tbl tr.r2[draggable]{cursor:grab}
 .pl-tbl tr.r2[draggable]:active{cursor:grabbing}
 .pl-tbl tr.pl-drag-over td{background:#dbeafe !important;border-top:2px solid #2563eb !important}
@@ -146,7 +150,17 @@ td.copy-flash{background:#c8f0c8!important}
     Google로 로그인
   </button>
   <p style="font-size:11px;color:#aaa;margin-top:4px">데이터는 본인 계정에만 저장되며 타인과 공유되지 않습니다.</p>
+  <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <div style="height:1px;width:60px;background:#ddd"></div>
+    <span style="font-size:11px;color:#bbb">또는 공유 코드로 접근</span>
+    <div style="height:1px;width:60px;background:#ddd"></div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <input id="token-input" placeholder="공유 코드 입력" style="padding:9px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:200px;outline:none" onkeydown="if(event.key==='Enter')enterWithToken()">
+    <button onclick="enterWithToken()" style="padding:9px 18px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer">입장</button>
+  </div>
 </div>
+<div id="share-badge"></div>
 
 <div class="sidebar">
   <div class="sidebar-logo">📒 법인 가계부<span>멀티 법인 관리</span></div>
@@ -353,6 +367,19 @@ td.copy-flash{background:#c8f0c8!important}
           <div class="card-title">계정과목 목록</div>
           <div id="accounts-tree"></div>
         </div>
+        <div class="card" style="grid-column:span 2" id="share-mgmt-card">
+          <div class="card-title">🔗 공유 링크 관리</div>
+          <p style="font-size:11px;color:#888;margin-bottom:8px">생성한 링크를 대표님께 공유하면 Google 계정 없이도 접근할 수 있습니다.</p>
+          <div id="share-tokens-list"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+            <input id="share-label-inp" class="inp" placeholder="이름 (예: 홈스 대표)" style="flex:1;font-size:11px">
+            <select id="share-mode-sel" class="inp" style="width:80px;font-size:11px">
+              <option value="read">읽기</option>
+              <option value="write">쓰기</option>
+            </select>
+            <button class="btn btn-p" onclick="createShareToken()" style="font-size:11px;white-space:nowrap">링크 생성</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -496,6 +523,10 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 let currentUser = null;
+let _shareMode = null;      // null=오너, 'read'=읽기전용, 'write'=공유쓰기
+let _shareOwnerUid = null;  // 공유 접근 시 데이터 오너 uid
+const getUid = () => _shareOwnerUid || currentUser?.uid;
+const _isReadOnly = () => _shareMode === 'read';
 let _saveTimer    = null;
 let _lsTimer      = null;
 let _dirtyMonths  = new Set(); // 저장 필요한 월 추적
@@ -616,6 +647,7 @@ let selColor=COLORS[0];
 // ══════════════════════════════════════════════
 // dirtyIds: 변경된 행 ID 배열 (없으면 전체), oldMonth: 날짜 변경 시 이전 월
 function save(dirtyIds, oldMonth){
+  if(_isReadOnly()) return;
   clearTimeout(_lsTimer);
   _lsTimer=setTimeout(()=>localStorage.setItem('ledger_v6',JSON.stringify(ST)),500);
   if(!currentUser) return;
@@ -640,8 +672,8 @@ function setSyncStatus(msg){
 }
 
 async function saveToFirestore(){
-  if(!currentUser) return;
-  const uid=currentUser.uid;
+  if(!currentUser||_isReadOnly()) return;
+  const uid=getUid();
   try{
     // meta 저장 (항상)
     const newMonths=[...new Set(ST.rows.map(r=>r.month).filter(Boolean))].sort();
@@ -745,14 +777,15 @@ function signOutUser(){
 
 async function loadFromFirestore(){
   if(!currentUser) return;
-  const uid=currentUser.uid;
+  const uid=getUid();
   setSyncStatus('불러오는 중...');
   try{
     const metaSnap=await db.doc(`users/${uid}`).get();
 
-    // Firestore 문서가 없거나, 있어도 법인 데이터가 비어있는 경우 → localStorage 폴백
+    // Firestore 문서가 없거나, 있어도 법인 데이터가 비어있는 경우 → localStorage 폴백 (오너만)
     const firestoreEmpty=!metaSnap.exists||((metaSnap.data().companies||[]).length===0);
     if(firestoreEmpty){
+      if(_shareMode){renderApp();setSyncStatus('');return;} // 공유 접근 시 이전 안 함
       const local=JSON.parse(localStorage.getItem('ledger_v6')||'null');
       if(local&&(local.companies||[]).length>0){
         if(confirm(`로컬에 저장된 데이터를 클라우드로 이전하시겠습니까?\n법인 ${local.companies.length}개, 거래내역 ${(local.rows||[]).length}건`)){
@@ -802,7 +835,7 @@ async function loadFromFirestore(){
 // 특정 월 데이터를 Firestore에서 추가 로드
 async function loadMonthFromFirestore(month){
   if(!currentUser||_loadedMonths.has(month)) return;
-  const uid=currentUser.uid;
+  const uid=getUid();
   setSyncStatus(`${month} 로드 중...`);
   const snap=await db.doc(`users/${uid}/months/${month}`).get();
   if(snap.exists){
@@ -841,17 +874,64 @@ function renderApp(){
 auth.onAuthStateChanged(async user=>{
   if(user){
     currentUser=user;
+    // 공유 토큰 검증 (익명 로그인 후 진입한 경우)
+    if(_shareOwnerUid===null && user.isAnonymous){
+      // _pendingToken이 있으면 검증 시도
+      if(window._pendingToken){
+        const ok=await _resolveShareToken(window._pendingToken);
+        if(!ok){ auth.signOut(); return; }
+      } else {
+        auth.signOut(); return;
+      }
+    }
     document.getElementById('login-overlay').style.display='none';
     const info=document.getElementById('user-info');
-    if(info){info.textContent=user.displayName||user.email;info.style.display='';}
+    if(info){
+      info.textContent=_shareMode==='read'?'👁 읽기 전용':_shareMode==='write'?'✏️ 공유 접근':(user.displayName||user.email);
+      info.style.display='';
+    }
     const btn=document.getElementById('btn-signout');
-    if(btn) btn.style.display='';
+    if(btn) btn.style.display=_shareMode?'none':'';
+    if(_shareMode){
+      const badge=document.getElementById('share-badge');
+      if(badge){badge.textContent=_shareMode==='read'?'👁 읽기 전용 모드':'✏️ 공유 접근 모드';badge.classList.add('show');}
+      if(_shareMode==='read') document.body.classList.add('read-only');
+    }
     await loadFromFirestore();
   }else{
     currentUser=null;
     document.getElementById('login-overlay').style.display='flex';
   }
 });
+
+// 공유 토큰 검증 — ownerUid + mode 설정
+async function _resolveShareToken(token){
+  try{
+    const snap=await db.doc(`shareTokens/${token}`).get();
+    if(!snap.exists){alert('유효하지 않은 공유 코드입니다.');return false;}
+    const d=snap.data();
+    _shareOwnerUid=d.ownerUid;
+    _shareMode=d.mode||'read';
+    return true;
+  }catch(e){
+    alert('공유 코드 확인 실패: '+e.message);
+    return false;
+  }
+}
+
+// 로그인 화면에서 공유 코드 직접 입력
+async function enterWithToken(){
+  const token=(document.getElementById('token-input').value||'').trim();
+  if(!token){alert('공유 코드를 입력하세요.');return;}
+  window._pendingToken=token;
+  // 토큰 먼저 확인 후 익명 로그인
+  const tmpSnap=await db.doc(`shareTokens/${token}`).get().catch(()=>null);
+  if(!tmpSnap||!tmpSnap.exists){alert('유효하지 않은 공유 코드입니다.');return;}
+  const d=tmpSnap.data();
+  _shareOwnerUid=d.ownerUid;
+  _shareMode=d.mode||'read';
+  auth.signInAnonymously().catch(e=>alert('접속 실패: '+e.message));
+}
 
 const fmt   = n => Number(n||0).toLocaleString('ko-KR');
 const num   = s => parseFloat(String(s||0).replace(/,/g,'').replace(/[^\d.-]/g,''))||0;
@@ -1148,6 +1228,7 @@ document.addEventListener('mouseup',()=>{isDragging=false;});
 // 편집
 // ══════════════════════════════════════════════
 function startEdit(ri, ci, clearVal=false){
+  if(_isReadOnly()) return;
   if(ri<0||ri>=_rows.length)return;
   if(ci<0||ci>=DC.length)return;
   if(isRO(ci)) return; // 거래월: 이동만
@@ -2403,6 +2484,13 @@ async function runAI(){
 // 설정
 // ══════════════════════════════════════════════
 function renderSettings(){
+  // 공유 접근 시 편집 카드 숨김
+  document.querySelectorAll('#tab-settings .card').forEach(el=>{
+    if(el.id==='share-mgmt-card') el.style.display=_shareMode?'none':'';
+    else if(_isReadOnly()) el.style.display='none';
+    else el.style.display='';
+  });
+  if(!_isReadOnly()&&!_shareMode) renderShareTokens();
   const cid=curCo,ws=getWl(cid),ac=getAc(cid),c4=getC4(cid);
   const k1s=Object.keys(ac).filter(k=>k!=='_cat4');
   document.getElementById('wallet-list').innerHTML=ws.map(w=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border:1px solid #e5e5e5;border-radius:4px;margin-bottom:3px"><span style="font-size:11px">${w}</span><button class="btn-sm btn-d" onclick="delWallet('${w}')">삭제</button></div>`).join('')||'<p style="color:#aaa;font-size:11px;margin-bottom:4px">없음</p>';
@@ -2412,6 +2500,40 @@ function renderSettings(){
     (!k1s.length&&!c4.length?'<p style="color:#aaa;font-size:11px">없음</p>':'')+
     k1s.map(c1=>{const sub=ac[c1]||{};return`<div style="margin-bottom:5px;padding:7px;border:1px solid #e5e5e5;border-radius:6px"><div class="tree-item"><span style="font-weight:700;font-size:11px">📁 ${c1}</span><button class="btn-sm btn-d" onclick="delCat1('${c1}')">삭제</button></div><div class="tree-sub">${Object.entries(sub).filter(([k])=>k!=='_cat4').map(([c2,arr])=>`<div class="tree-item"><span style="font-size:11px;color:#444">└ ${c2}</span><button class="btn-sm btn-d" onclick="delCat2('${c1}','${c2}')">삭제</button></div><div class="tree-sub2">${(arr||[]).map(c3=>`<div class="tree-item"><span style="font-size:10px;color:#888">└ ${c3}</span><button class="btn-sm btn-d" onclick="delCat3('${c1}','${c2}','${c3}')">삭제</button></div>`).join('')}</div>`).join('')}</div></div>`;}).join('')+
     (c4.length?`<div style="margin-top:5px;padding:7px;border:1px solid #e5e5e5;border-radius:6px"><div class="tree-item"><span style="font-weight:700;font-size:11px">🏷 소속</span></div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${c4.map(c=>`<span style="background:#f0f0f0;padding:2px 7px;border-radius:3px;font-size:10px">${c} <button class="btn-sm btn-d" onclick="delC4('${c}')" style="border:none;background:none;cursor:pointer;padding:0">✕</button></span>`).join('')}</div></div>`:'');
+}
+async function renderShareTokens(){
+  const el=document.getElementById('share-tokens-list');
+  if(!el||!currentUser) return;
+  try{
+    const snaps=await db.collection('shareTokens').where('ownerUid','==',currentUser.uid).get();
+    const tokens=snaps.docs.map(d=>({id:d.id,...d.data()}));
+    const base=location.href.split('?')[0];
+    el.innerHTML=tokens.length===0
+      ?'<p style="font-size:11px;color:#aaa;margin-bottom:4px">생성된 링크 없음</p>'
+      :tokens.map(t=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f0f0f0">
+        <span style="font-size:11px;font-weight:600;min-width:60px">${t.label||'(이름없음)'}</span>
+        <span class="learn-badge" style="background:${t.mode==='read'?'#f59e0b':'#6366f1'};color:#fff">${t.mode==='read'?'읽기':'쓰기'}</span>
+        <input value="${base}?token=${t.id}" readonly onclick="this.select()" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;background:#f8f8f7;min-width:0">
+        <button class="btn-sm" onclick="navigator.clipboard.writeText('${base}?token=${t.id}').then(()=>alert('복사됨!'))">복사</button>
+        <button class="btn-sm btn-d" onclick="deleteShareToken('${t.id}')">삭제</button>
+      </div>`).join('');
+  }catch(e){el.innerHTML='<p style="font-size:11px;color:#c0392b">로드 실패: '+e.message+'</p>';}
+}
+async function createShareToken(){
+  if(!currentUser){alert('로그인 필요');return;}
+  const label=(document.getElementById('share-label-inp').value||'').trim()||'공유';
+  const mode=document.getElementById('share-mode-sel').value;
+  const token=Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);
+  try{
+    await db.doc(`shareTokens/${token}`).set({ownerUid:currentUser.uid,mode,label,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    document.getElementById('share-label-inp').value='';
+    renderShareTokens();
+  }catch(e){alert('생성 실패: '+e.message);}
+}
+async function deleteShareToken(tokenId){
+  if(!confirm('이 링크를 삭제하면 더 이상 접근할 수 없습니다. 삭제할까요?'))return;
+  try{await db.doc(`shareTokens/${tokenId}`).delete();renderShareTokens();}
+  catch(e){alert('삭제 실패: '+e.message);}
 }
 function upS23(){const c1=document.getElementById('sp13').value;const ac=getAc(curCo);document.getElementById('sp23').innerHTML=`<option value="">중분류 선택...</option>`+Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4').map(c=>`<option>${c}</option>`).join('');}
 function hk(e,type){if(e.shiftKey&&e.key==='Enter'){e.preventDefault();const el=e.target,p=el.selectionStart;el.value=el.value.slice(0,p)+'\n'+el.value.slice(p);el.selectionStart=el.selectionEnd=p+1;}else if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();({wallet:addWallet,cat1:addCat1,cat2:addCat2,cat3:addCat3,cat4:addCat4})[type]?.();}}
