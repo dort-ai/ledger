@@ -1814,7 +1814,7 @@ function renderPL(){
   const getCat2s=cat1=>{
     if(!agg[cat1])return[];
     const obj=ac[cat1]||{};
-    const acOrd=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order');
+    const acOrd=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order').sort();
     const dataKeys=Object.keys(agg[cat1]);
     return[...acOrd.filter(k=>dataKeys.includes(k)),...dataKeys.filter(k=>!acOrd.includes(k))];
   };
