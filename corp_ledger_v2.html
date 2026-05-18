@@ -742,12 +742,12 @@ async function loadMonthFromFirestore(month){
   setSyncStatus(`${month} 로드 중...`);
   const snap=await db.doc(`users/${uid}/months/${month}`).get();
   if(snap.exists){
+    const existingIds=new Set(ST.rows.map(r=>r.id));
     (snap.data().rows||[]).forEach(row=>{
-      if(!ST.rows.find(r=>r.id===row.id)) ST.rows.push(row);
+      if(!existingIds.has(row.id)) ST.rows.push(row);
     });
   }
   _loadedMonths.add(month);
-  localStorage.setItem('ledger_v6',JSON.stringify(ST));
   setSyncStatus('');
 }
 
@@ -760,6 +760,7 @@ async function loadYearFromFirestore(year){
   for(const month of yearMonths){
     if(!_loadedMonths.has(month)) await loadMonthFromFirestore(month);
   }
+  localStorage.setItem('ledger_v6',JSON.stringify(ST));
 }
 
 function renderApp(){
