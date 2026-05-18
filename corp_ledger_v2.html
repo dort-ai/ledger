@@ -960,13 +960,15 @@ function renderLedger(){
     else{btnU.style.display='none';}
   }
 
-  // 헤더
-  const monthOpts=[...new Set(allRows.map(r=>r.month).filter(Boolean))].sort();
-  const cat1Opts=[...new Set(allRows.map(r=>r.cat1).filter(Boolean))].sort();
-  const cat2Opts=[...new Set(allRows.map(r=>r.cat2).filter(Boolean))].sort();
-  const cat3Opts=[...new Set(allRows.map(r=>r.cat3).filter(Boolean))].sort();
-  const cat4Opts=[...new Set(allRows.map(r=>r.cat4).filter(Boolean))].sort();
-  const walOpts=[...new Set(allRows.map(r=>r.wallet).filter(Boolean))].sort();
+  // 헤더 — 단일 패스로 모든 필터 옵션 수집
+  const _sSets={month:new Set(),cat1:new Set(),cat2:new Set(),cat3:new Set(),cat4:new Set(),wallet:new Set()};
+  allRows.forEach(r=>{['month','cat1','cat2','cat3','cat4','wallet'].forEach(k=>{if(r[k])_sSets[k].add(r[k]);});});
+  const monthOpts=[..._sSets.month].sort();
+  const cat1Opts=[..._sSets.cat1].sort();
+  const cat2Opts=[..._sSets.cat2].sort();
+  const cat3Opts=[..._sSets.cat3].sort();
+  const cat4Opts=[..._sSets.cat4].sort();
+  const walOpts=[..._sSets.wallet].sort();
   const selectOptsMap={month:monthOpts,cat1:cat1Opts,cat2:cat2Opts,cat3:cat3Opts,cat4:cat4Opts,wallet:walOpts};
   document.getElementById('t-head').innerHTML=`<tr>${COLS.map(col=>{
     if(col.t==='chk')return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl"><input type="checkbox" id="chk-all" onchange="toggleAll(this.checked)" style="width:auto"></div><div class="th-f" style="padding:2px"></div></div></th>`;
