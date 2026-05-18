@@ -1797,17 +1797,19 @@ function renderCashflow(){
   const finC=["선수금","예수금","부가세"];
   const knownC=new Set([...opC,...invC,...finC]);
 
-  // 각 활동별 월별 집계
-  const cf=cats=>months.map(m=>{
-    const mr=rows.filter(r=>r.month===m&&cats.includes(r.cat1));
-    return{i:mr.reduce((s,r)=>s+num(r.income),0),e:mr.reduce((s,r)=>s+num(r.expense),0)};
-  });
-  const op=cf(opC),inv=cf(invC),fin=cf(finC);
-
-  // 기타: 위 3개 활동 어디에도 속하지 않는 행 (cat1 미분류 포함)
-  const etc=months.map(m=>{
-    const mr=rows.filter(r=>r.month===m&&!knownC.has(r.cat1));
-    return{i:mr.reduce((s,r)=>s+num(r.income),0),e:mr.reduce((s,r)=>s+num(r.expense),0)};
+  // 단일 패스로 월×활동 집계
+  const mIdx=Object.fromEntries(months.map((m,i)=>[m,i]));
+  const mk=()=>months.map(()=>({i:0,e:0}));
+  const op=mk(),inv=mk(),fin=mk(),etc=mk();
+  rows.forEach(r=>{
+    const idx=mIdx[r.month];if(idx===undefined)return;
+    const inc=num(r.income),exp=num(r.expense);
+    let bucket;
+    if(opC.includes(r.cat1))bucket=op[idx];
+    else if(invC.includes(r.cat1))bucket=inv[idx];
+    else if(finC.includes(r.cat1))bucket=fin[idx];
+    else bucket=etc[idx];
+    bucket.i+=inc;bucket.e+=exp;
   });
   const hasEtc=etc.some(v=>v.i||v.e);
 
