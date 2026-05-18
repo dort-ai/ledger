@@ -410,7 +410,7 @@ td.copy-flash{background:#c8f0c8!important}
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px 12px;background:#f8f8f7;border-radius:7px;margin-bottom:10px">
       <div style="flex:1.5;min-width:160px">
         <div style="font-size:11px;color:#888;margin-bottom:3px">기재내용 검색</div>
-        <input type="text" id="bulk-filter" placeholder="키워드..." oninput="renderBulkList()" style="width:100%;box-sizing:border-box">
+        <input type="text" id="bulk-filter" placeholder="키워드..." oninput="clearTimeout(window._bulkTimer);window._bulkTimer=setTimeout(renderBulkList,250)" style="width:100%;box-sizing:border-box">
       </div>
       <div style="flex:1;min-width:130px">
         <div style="font-size:11px;color:#888;margin-bottom:3px">중분류 <span style="color:#c0392b">*</span></div>
