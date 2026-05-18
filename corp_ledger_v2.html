@@ -715,12 +715,13 @@ async function loadFromFirestore(){
     ST.wallets     =m.wallets     ||{};
     ST._metaMonths =(m.months     ||[]).sort();
 
-    // 가장 최근 월 데이터만 로드 (월별 문서 구조)
+    // 가장 최근 월 로드 — 빈 월이면 이전 월로 거슬러 올라가 데이터 찾기 (최대 6개월)
     _loadedMonths.clear();
     ST.rows=[];
-    const latestMonth=ST._metaMonths[ST._metaMonths.length-1];
-    if(latestMonth){
-      await loadMonthFromFirestore(latestMonth);
+    const reversedMeta=[...(ST._metaMonths||[])].reverse();
+    for(const m of reversedMeta.slice(0,6)){
+      await loadMonthFromFirestore(m);
+      if(ST.rows.length>0) break;
     }
     localStorage.setItem('ledger_v6',JSON.stringify(ST));
     setSyncStatus('');
@@ -799,7 +800,7 @@ const selRange = () => ({
   c1:Math.min(selAnchor.c,selFocus.c), c2:Math.max(selAnchor.c,selFocus.c),
 });
 const getRows = cid => cid==='__all__' ? ST.rows : ST.rows.filter(r=>r.companyId===cid);
-const getReportRows = cid => getRows(cid).filter(r=>!r.splitParent); // 부모·일반행만 집계(자식행 제외)
+const getReportRows = cid => getRows(cid); // 부모·자식행 모두 집계
 const cat1FromCat2=(cid,c2)=>{const ac=getAc(cid);for(const[c1,sub] of Object.entries(ac)){if(c1==='_cat4')continue;if(typeof sub==='object'&&!Array.isArray(sub)&&c2 in sub)return c1;}return'';};
 const cat2FromCat3=(cid,c1,c3)=>{const ac=getAc(cid);const sub=ac[c1]||{};for(const[c2,arr] of Object.entries(sub)){if(Array.isArray(arr)&&arr.includes(c3))return c2;}return'';};
 
@@ -1597,7 +1598,9 @@ function selectCo(id){
     const _latest=_srcM[_srcM.length-1];
     const _ym=_latest.match(/(\d{2})년/);
     periodYear=_ym?'20'+_ym[1]:String(new Date().getFullYear());
-    periodMonth=_latest;
+    // 실제 로드된 행 기준으로 periodMonth 설정 (빈 월 방지)
+    const rowMonths=[...new Set(getRows(id).map(r=>r.month).filter(Boolean))].sort();
+    periodMonth=rowMonths.length?rowMonths[rowMonths.length-1]:_latest;
   }else{
     periodYear=String(new Date().getFullYear());
     periodMonth='';
