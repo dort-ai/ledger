@@ -1778,13 +1778,15 @@ function plDrop(e){
   const toCat1=tr.dataset.cat1, toCat2=tr.dataset.cat2;
   if(!toCat2||toCat2===_plDragCat2||toCat1!==_plDragCat1)return;
   const ac=getAc(curCo), obj=ac[_plDragCat1]||{};
-  const keys=Object.keys(obj).filter(k=>k!=='_cat4');
+  const base=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order');
+  const keys=[...base];
   const fi=keys.indexOf(_plDragCat2), ti=keys.indexOf(toCat2);
   if(fi===-1||ti===-1)return;
   keys.splice(fi,1); keys.splice(ti,0,_plDragCat2);
   const newObj={};
-  keys.forEach(k=>{newObj[k]=obj[k];});
+  keys.forEach(k=>{if(k in obj)newObj[k]=obj[k];});
   if(obj._cat4)newObj._cat4=obj._cat4;
+  newObj._order=keys;
   ST.accounts[curCo][_plDragCat1]=newObj;
   save(); renderPL();
 }
@@ -1811,7 +1813,8 @@ function renderPL(){
   // 계정과목 구조 순서대로 cat2 정렬, 없는 것은 뒤에
   const getCat2s=cat1=>{
     if(!agg[cat1])return[];
-    const acOrd=Object.keys(ac[cat1]||{}).filter(k=>k!=='_cat4');
+    const obj=ac[cat1]||{};
+    const acOrd=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order');
     const dataKeys=Object.keys(agg[cat1]);
     return[...acOrd.filter(k=>dataKeys.includes(k)),...dataKeys.filter(k=>!acOrd.includes(k))];
   };
@@ -2281,8 +2284,8 @@ function addWallet(){const c=curCo;ensWl(c);gL('nw').forEach(v=>{if(v&&!ST.walle
 function delWallet(w){ST.wallets[curCo]=getWl(curCo).filter(x=>x!==w);save();renderSettings();}
 function addCat1(){const c=curCo;ensAc(c);gL('nc1').forEach(v=>{if(v&&!ST.accounts[c][v])ST.accounts[c][v]={};});save();renderSettings();document.getElementById('nc1').value='';}
 function delCat1(c){delete ST.accounts[curCo][c];save();renderSettings();}
-function addCat2(){const c=curCo,c1=document.getElementById('sp1').value;if(!c1){alert('대분류 선택');return;}ensAc(c);if(!ST.accounts[c][c1])ST.accounts[c][c1]={};gL('nc2').forEach(v=>{if(v&&!ST.accounts[c][c1][v])ST.accounts[c][c1][v]=[];});save();renderSettings();document.getElementById('nc2').value='';}
-function delCat2(c1,c2){delete ST.accounts[curCo][c1][c2];save();renderSettings();}
+function addCat2(){const c=curCo,c1=document.getElementById('sp1').value;if(!c1){alert('대분류 선택');return;}ensAc(c);if(!ST.accounts[c][c1])ST.accounts[c][c1]={};gL('nc2').forEach(v=>{if(v&&!ST.accounts[c][c1][v]){ST.accounts[c][c1][v]=[];if(ST.accounts[c][c1]._order)ST.accounts[c][c1]._order.push(v);}});save();renderSettings();document.getElementById('nc2').value='';}
+function delCat2(c1,c2){const obj=ST.accounts[curCo][c1];delete obj[c2];if(obj._order)obj._order=obj._order.filter(k=>k!==c2);save();renderSettings();}
 function addCat3(){const c=curCo,c1=document.getElementById('sp13').value,c2=document.getElementById('sp23').value;if(!c1||!c2){alert('대분류·중분류 선택');return;}if(!ST.accounts[c][c1][c2])ST.accounts[c][c1][c2]=[];gL('nc3').forEach(v=>{if(v&&!ST.accounts[c][c1][c2].includes(v))ST.accounts[c][c1][c2].push(v);});save();renderSettings();document.getElementById('nc3').value='';}
 function delCat3(c1,c2,c3){ST.accounts[curCo][c1][c2]=ST.accounts[curCo][c1][c2].filter(x=>x!==c3);save();renderSettings();}
 function addCat4(){const c=curCo;ensAc(c);if(!ST.accounts[c]._cat4)ST.accounts[c]._cat4=[];gL('nc4').forEach(v=>{if(v&&!ST.accounts[c]._cat4.includes(v))ST.accounts[c]._cat4.push(v);});save();renderSettings();document.getElementById('nc4').value='';}
