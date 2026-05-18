@@ -476,6 +476,7 @@ const auth = firebase.auth();
 const db   = firebase.firestore();
 let currentUser = null;
 let _saveTimer    = null;
+let _lsTimer      = null;
 let _dirtyMonths  = new Set(); // 저장 필요한 월 추적
 let _loadedMonths = new Set(); // Firestore에서 이미 로드된 월
 
@@ -553,7 +554,8 @@ let selColor=COLORS[0];
 // ══════════════════════════════════════════════
 // dirtyIds: 변경된 행 ID 배열 (없으면 전체), oldMonth: 날짜 변경 시 이전 월
 function save(dirtyIds, oldMonth){
-  localStorage.setItem('ledger_v6',JSON.stringify(ST));
+  clearTimeout(_lsTimer);
+  _lsTimer=setTimeout(()=>localStorage.setItem('ledger_v6',JSON.stringify(ST)),500);
   if(!currentUser) return;
   if(dirtyIds){
     dirtyIds.forEach(id=>{
