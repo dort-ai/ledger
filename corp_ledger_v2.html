@@ -2139,10 +2139,10 @@ async function runAI(){
   const classified=getRows(curCo).filter(r=>r.cat1).slice(-150);
   const ups=(ST.learnUploads||[]).filter(u=>u.companyId===curCo);
   const learnExtra=ups.flatMap(u=>u.data||[]).slice(0,100);
-  step(`AI 분류 시작 (${remain.length}건)`,false);
+  step(`AI 분류 시작 (${unclassed.length}건)`,false);
   const BATCH=25;let ac2=0;
-  for(let i=0;i<remain.length;i+=BATCH){
-    const batch=remain.slice(i,i+BATCH);
+  for(let i=0;i<unclassed.length;i+=BATCH){
+    const batch=unclassed.slice(i,i+BATCH);
     const prompt=`법인 가계부 자동분류.\n계정과목: ${JSON.stringify(Object.fromEntries(k1s.map(k=>[k,Object.keys(ac[k]||{}).filter(x=>x!=='_cat4')])))}\n소속: ${c4.join(',')}\n사례: ${classified.map(r=>`${r.desc}→${r.cat1}/${r.cat2}`).join(' | ')}\n추가: ${learnExtra.map(r=>r.desc?`${r.desc}→${r.cat1||''}`:'' ).filter(Boolean).join(' | ')}\n대상:\n${batch.map((r,i)=>`[${i}]${r.desc}|입금:${r.income}|지급:${r.expense}`).join('\n')}\n규칙: 불확실하면 빈문자열. JSON 배열만. 길이=${batch.length}.\n[{"idx":0,"cat1":"","cat2":"","cat3":"","cat4":""},...]`;
     try{
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})});
