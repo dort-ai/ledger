@@ -776,12 +776,12 @@ function signOutUser(){
   auth.signOut().then(()=>location.reload());
 }
 
-async function loadFromFirestore(){
+async function loadFromFirestore(preloadedSnap){
   if(!currentUser) return;
   const uid=getUid();
   setSyncStatus('불러오는 중...');
   try{
-    const metaSnap=await db.doc(`users/${uid}`).get();
+    const metaSnap=preloadedSnap||await db.doc(`users/${uid}`).get();
 
     // Firestore 문서가 없거나, 있어도 법인 데이터가 비어있는 경우 → localStorage 폴백 (오너만)
     const firestoreEmpty=!metaSnap.exists||((metaSnap.data().companies||[]).length===0);
@@ -816,13 +816,21 @@ async function loadFromFirestore(){
     ST.shareTokens   =m.shareTokens   ||{};
     ST._metaMonths =(m.months     ||[]).sort();
 
-    // 가장 최근 월 로드 — 빈 월이면 이전 월로 거슬러 올라가 데이터 찾기 (최대 6개월)
+    // 가장 최근 월 로드 — 최대 3개월 병렬 조회 후 가장 최근 데이터 사용
     _loadedMonths.clear();
     ST.rows=[];
     const reversedMeta=[...(ST._metaMonths||[])].reverse();
-    for(const m of reversedMeta.slice(0,6)){
-      await loadMonthFromFirestore(m);
-      if(ST.rows.length>0) break;
+    const candidates=reversedMeta.slice(0,3);
+    if(candidates.length){
+      const snaps=await Promise.all(candidates.map(m=>db.doc(`users/${uid}/months/${m}`).get()));
+      for(let i=0;i<snaps.length;i++){
+        if(snaps[i].exists){
+          const existingIds=new Set(ST.rows.map(r=>r.id));
+          (snaps[i].data().rows||[]).forEach(row=>{if(!existingIds.has(row.id))ST.rows.push(row);});
+          _loadedMonths.add(candidates[i]);
+          if(ST.rows.length>0) break;
+        }
+      }
     }
     localStorage.setItem('ledger_v6',JSON.stringify(ST));
     setSyncStatus('');
@@ -889,10 +897,11 @@ auth.onAuthStateChanged(async user=>{
   if(user){
     currentUser=user;
     // 익명 로그인 후 토큰 검증
+    let _preloadedSnap=null;
     if(user.isAnonymous&&_shareOwnerUid===null){
       if(window._pendingShareUid&&window._pendingShareToken){
-        const ok=await _resolveShareToken(window._pendingShareUid,window._pendingShareToken);
-        if(!ok){auth.signOut();return;}
+        _preloadedSnap=await _resolveShareToken(window._pendingShareUid,window._pendingShareToken);
+        if(!_preloadedSnap){auth.signOut();return;}
       }else{auth.signOut();return;}
     }
     document.getElementById('login-overlay').style.display='none';
@@ -908,7 +917,7 @@ auth.onAuthStateChanged(async user=>{
       if(badge){badge.textContent=_shareMode==='read'?'👁 읽기 전용 모드':'✏️ 공유 접근 모드';badge.classList.add('show');}
       if(_shareMode==='read') document.body.classList.add('read-only');
     }
-    await loadFromFirestore();
+    await loadFromFirestore(_preloadedSnap);
   }else{
     currentUser=null;
     if(!window._pendingShareUid) document.getElementById('login-overlay').style.display='flex';
@@ -919,16 +928,16 @@ auth.onAuthStateChanged(async user=>{
 async function _resolveShareToken(ownerUid,token){
   try{
     const snap=await db.doc(`users/${ownerUid}`).get();
-    if(!snap.exists){alert('공유 링크가 유효하지 않습니다.');return false;}
+    if(!snap.exists){alert('공유 링크가 유효하지 않습니다.');return null;}
     const tokens=snap.data().shareTokens||{};
-    if(!tokens[token]){alert('공유 코드가 만료되었거나 유효하지 않습니다.');return false;}
+    if(!tokens[token]){alert('공유 코드가 만료되었거나 유효하지 않습니다.');return null;}
     _shareOwnerUid=ownerUid;
     _shareMode=tokens[token].mode||'read';
-    return true;
+    return snap; // 이미 읽은 snap 반환 → loadFromFirestore에서 재사용
   }catch(e){
     if(e.code==='permission-denied') alert('접근 권한 오류입니다.\nFirebase Console → Firestore → 규칙에서 읽기 허용이 필요합니다.');
     else alert('공유 코드 확인 실패: '+e.message);
-    return false;
+    return null;
   }
 }
 
