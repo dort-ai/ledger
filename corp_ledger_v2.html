@@ -527,8 +527,8 @@ const DEFAULT_CF_MAP=[
     {label:'유형자산 처분(CAPEX 판매)',keys:['유형자산처분']},
     {label:'기타자산 증가(임대차보증금 지출)',keys:['계약금','잔금']},
     {label:'기타자산 감소(임대차보증금 회수)',keys:['계약금반환','보증금반환']},
-    {label:'기타 투자활동 증가',keys:['기타보증금']},
-    {label:'기타 투자활동 감소(자회사 투자금)',keys:['기타보증금반환','대여금','투자금']},
+    {label:'기타 투자활동 증가',keys:['기타보증금','대여금회수']},
+    {label:'기타 투자활동 감소',keys:['기타보증금반환','대여금','투자금']},
   ]},
   {section:'재무활동',bg:'#fdf5eb',items:[
     {label:'차입금 증가',keys:['차입금']},
@@ -2019,6 +2019,8 @@ function renderCashflow(){
   const netByC1s=(cat1s,m)=>cat1s.reduce((s,c1)=>s+(byC1[c1]?.[m]?(byC1[c1][m].i-byC1[c1][m].e):0),0);
 
   const allMapped=new Set(cfMap.flatMap(s=>s.items.filter(it=>it.keys).flatMap(it=>it.keys)));
+  // pl_net 항목(당기순이익)이 커버하는 cat1 집합 — 기타 섹션 중복 제외용
+  const plNetCat1s=new Set(cfMap.flatMap(s=>s.items.filter(it=>it.type==='pl_net').flatMap(it=>it.cat1s)));
 
   const thS='background:#f8f8f7;padding:5px 8px;font-size:10px;text-align:right;white-space:nowrap;border:1px solid #ddd;position:sticky;top:0;z-index:1';
   const tL=(t,indent,bg,bold)=>`<td style="padding:4px 8px;font-size:11px;font-weight:${bold?700:400};background:${bg||'transparent'};white-space:nowrap;border:1px solid #eee;${indent?'padding-left:24px;':''}">${t}</td>`;
@@ -2059,14 +2061,23 @@ function renderCashflow(){
     grandTot+=secTot;
   }
 
-  // 기타: 매핑 안 된 cat2 항목
-  const otherKeys=Object.keys(byC2).filter(k=>!allMapped.has(k)&&k!=='(미분류)').sort();
+  // 기타: 매핑 안 된 cat2 항목 — pl_net 대상 cat1(당기순이익 포함)은 중복이므로 제외
+  const byC2_o={};
+  rows.forEach(r=>{
+    if(plNetCat1s.has(r.cat1)) return;
+    const c2=r.cat2||'(미분류)';
+    if(!byC2_o[c2])byC2_o[c2]={};
+    if(!byC2_o[c2][r.month])byC2_o[c2][r.month]={i:0,e:0};
+    byC2_o[c2][r.month].i+=num(r.income);
+    byC2_o[c2][r.month].e+=num(r.expense);
+  });
+  const otherKeys=Object.keys(byC2_o).filter(k=>!allMapped.has(k)&&k!=='(미분류)').sort();
   if(otherKeys.length){
-    const oNet=months.map(m=>otherKeys.reduce((s,k)=>s+(byC2[k]?.[m]?byC2[k][m].i-byC2[k][m].e:0),0));
+    const oNet=months.map(m=>otherKeys.reduce((s,k)=>s+(byC2_o[k]?.[m]?byC2_o[k][m].i-byC2_o[k][m].e:0),0));
     const oTot=oNet.reduce((s,v)=>s+v,0);
     html+=`<tr style="background:#f5f0f8">${tL('▶ 기타 (매핑 외)',false,'#f5f0f8',true)}${oNet.map(v=>tN(v,true)).join('')}${tN(oTot,true)}</tr>`;
     for(const k of otherKeys){
-      const vals=months.map(m=>byC2[k]?.[m]?byC2[k][m].i-byC2[k][m].e:0);
+      const vals=months.map(m=>byC2_o[k]?.[m]?byC2_o[k][m].i-byC2_o[k][m].e:0);
       const tot=vals.reduce((s,v)=>s+v,0);
       html+=`<tr>${tL('　'+k,true)}${vals.map((v,i)=>tN(v,false,k,[k],null,months[i])).join('')}${tN(tot,false,k,[k],null,'')}</tr>`;
     }
