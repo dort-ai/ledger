@@ -808,7 +808,7 @@ const cat2FromCat3=(cid,c1,c3)=>{const ac=getAc(cid);const sub=ac[c1]||{};for(co
 
 function pushUndo(){
   undoStack.push(JSON.stringify(ST.rows));
-  if(undoStack.length>60)undoStack.shift();
+  if(undoStack.length>30)undoStack.shift();
 }
 function doUndo(){
   if(!undoStack.length)return;
