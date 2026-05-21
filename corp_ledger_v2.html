@@ -136,6 +136,24 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 .pl-tbl tr.r2[draggable]:active{cursor:grabbing}
 .pl-tbl tr.pl-drag-over td{background:#dbeafe !important;border-top:2px solid #2563eb !important}
 .hint{font-size:10px;color:#aaa;margin-top:5px}
+/* 다중선택 필터 드롭다운 */
+.ms-wrap{position:relative}
+.ms-btn{width:100%;border:none;border-top:1px solid #e0e0e0;border-radius:0;font-size:10px;padding:2px 4px;background:#fafaf8;text-align:left;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#555;font-family:inherit}
+.ms-btn:hover{background:#f0f0ee}
+.ms-btn.ms-active{background:#fff3e0;color:#b45309;font-weight:600}
+#msdrop{position:fixed;z-index:2100;background:#fff;border:1px solid #bbb;border-radius:5px;box-shadow:0 4px 14px rgba(0,0,0,.15);min-width:150px;max-height:240px;overflow-y:auto;display:none}
+#msdrop.show{display:block}
+.ms-item{display:flex;align-items:center;gap:7px;padding:5px 10px;cursor:pointer;font-size:12px;white-space:nowrap;user-select:none}
+.ms-item:hover{background:#ebf3ff}
+.ms-item input[type=checkbox]{cursor:pointer;flex-shrink:0;pointer-events:none}
+.ms-all{border-bottom:1px solid #f0f0f0;font-size:11px;color:#555;padding:4px 10px;cursor:pointer;display:flex;align-items:center;gap:7px}
+.ms-all:hover{background:#f5f5f3}
+/* 텍스트 필터 클리어 버튼 */
+.tf-wrap{position:relative;display:flex;align-items:center}
+.tf-wrap input{flex:1;padding-right:14px!important;min-width:0}
+.tf-clr{position:absolute;right:3px;top:50%;transform:translateY(-50%);cursor:pointer;color:#bbb;font-size:13px;line-height:1;display:none;border:none;background:none;padding:0}
+.tf-clr.show{display:block}
+.tf-clr:hover{color:#888}
 </style>
 </head>
 <body>
@@ -170,6 +188,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 </div>
 
 <div id="fdrop"></div>
+<div id="msdrop"></div>
 
 <div class="main">
   <div class="ph2">
@@ -991,8 +1010,17 @@ function getFiltered(){
   if(periodMonth) rows=rows.filter(r=>r.month===periodMonth);
   for(const[k,v] of Object.entries(filters)){
     if(!v)continue;
-    if(v==='__empty__')rows=rows.filter(r=>!r[k]||r[k]==='');
-    else rows=rows.filter(r=>String(r[k]||'').toLowerCase().includes(v.toLowerCase()));
+    if(Array.isArray(v)){
+      // 다중선택 필터: 정확 일치
+      if(!v.length)continue;
+      rows=rows.filter(r=>{
+        const rv=String(r[k]||'');
+        return v.some(fv=>fv==='__empty__'?rv==='':(rv===fv));
+      });
+    } else {
+      // 텍스트 필터: 부분 일치
+      rows=rows.filter(r=>String(r[k]||'').toLowerCase().includes(v.toLowerCase()));
+    }
   }
   if(sortKey){const d=sortAsc?1:-1;rows=[...rows].sort((a,b)=>String(a[sortKey]||'').localeCompare(String(b[sortKey]||''))*d);}
   return rows;
@@ -1140,17 +1168,30 @@ function renderLedger(){
   allRows.forEach(r=>{['month','cat1','cat2','cat3','cat4','wallet'].forEach(k=>{if(r[k])_sSets[k].add(r[k]);});});
   const monthOpts=[..._sSets.month].sort();
   const cat1Opts=[..._sSets.cat1].sort();
-  const cat2Opts=[..._sSets.cat2].sort();
-  const cat3Opts=[..._sSets.cat3].sort();
+  // 대분류 필터 선택 시 중분류 옵션 연동
+  const fCat1=Array.isArray(filters.cat1)&&filters.cat1.length?filters.cat1:null;
+  const cat1BaseRows=fCat1?allRows.filter(r=>fCat1.includes(r.cat1)):allRows;
+  const cat2Opts=[...new Set(cat1BaseRows.map(r=>r.cat2).filter(Boolean))].sort();
+  // 중분류 필터 선택 시 소분류 옵션 연동
+  const fCat2=Array.isArray(filters.cat2)&&filters.cat2.length?filters.cat2:null;
+  const cat2BaseRows=fCat2?cat1BaseRows.filter(r=>fCat2.includes(r.cat2)):cat1BaseRows;
+  const cat3Opts=[...new Set(cat2BaseRows.map(r=>r.cat3).filter(Boolean))].sort();
   const cat4Opts=[..._sSets.cat4].sort();
   const walOpts=[..._sSets.wallet].sort();
   const selectOptsMap={month:monthOpts,cat1:cat1Opts,cat2:cat2Opts,cat3:cat3Opts,cat4:cat4Opts,wallet:walOpts};
+  _msDrop_opts=selectOptsMap;
   document.getElementById('t-head').innerHTML=`<tr>${COLS.map(col=>{
     if(col.t==='chk')return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl"><input type="checkbox" id="chk-all" onchange="toggleAll(this.checked)" style="width:auto"></div><div class="th-f" style="padding:2px"></div></div></th>`;
     if(col.t==='act')return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl"></div><div class="th-f"></div></div></th>`;
     let fh='';
-    if(col.filter==='select'){const opts=selectOptsMap[col.k]||[];const fv=filters[col.k]||'';fh=`<select onchange="setF('${col.k}',this.value)"><option value="">전체</option><option value="__empty__" ${fv==='__empty__'?'selected':''}>비어있음</option>${opts.map(o=>`<option ${fv===o?'selected':''}>${o}</option>`).join('')}</select>`;}
-    else if(col.filter==='text'){fh=`<input type="text" data-fk="${col.k}" value="${filters[col.k]||''}" placeholder="검색" oninput="if(!event.isComposing)setF('${col.k}',this.value,this)" oncompositionend="setF('${col.k}',this.value,this)">`;}
+    if(col.filter==='select'){
+      const fv=Array.isArray(filters[col.k])?filters[col.k]:[];
+      const lbl=fv.length===0?'전체':(fv.length===1?(fv[0]==='__empty__'?'비어있음':fv[0]):`${fv.length}개 선택`);
+      fh=`<div class="ms-wrap"><button class="ms-btn${fv.length?' ms-active':''}" data-mskey="${col.k}" onclick="showMsDrop(event,'${col.k}')">${lbl}</button></div>`;
+    } else if(col.filter==='text'){
+      const fv=(filters[col.k]||'').replace(/"/g,'&quot;');
+      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oninput="if(!event.isComposing)setF('${col.k}',this.value,this)" oncompositionend="setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
+    }
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
   }).join('')}</tr>`;
@@ -1646,7 +1687,10 @@ function moveDrop(d){
 }
 function pickDrop(i){hideDrop();if(dropCb)dropCb(dropOpts[i]);}
 function hideDrop(){document.getElementById('fdrop').classList.remove('show');dropFocusIdx=-1;}
-document.addEventListener('mousedown',e=>{if(!e.target.closest('#fdrop')&&!e.target.classList.contains('cell-input'))hideDrop();});
+document.addEventListener('mousedown',e=>{
+  if(!e.target.closest('#fdrop')&&!e.target.classList.contains('cell-input'))hideDrop();
+  if(!e.target.closest('#msdrop')&&!e.target.closest('.ms-wrap'))hideMsDrop();
+});
 
 // ══════════════════════════════════════════════
 // 행 추가 / 분할
@@ -1699,6 +1743,7 @@ function delRow(id){
   renderLedger();
   updateMonthsInFirestore(affected);
 }
+// 텍스트 필터 (부분 일치)
 function setF(k,v,el){
   filters[k]=v; commitEdit(true);
   const selStart=el&&el.selectionStart, selEnd=el&&el.selectionEnd;
@@ -1708,10 +1753,58 @@ function setF(k,v,el){
     if(restored){restored.focus();try{restored.setSelectionRange(selStart,selEnd);}catch(e){}}
   }
 }
+// 다중선택 필터 관련
+let _msDrop_opts={};
+let _msKey=null;
+function showMsDrop(e,k){
+  e.stopPropagation();
+  const btn=e.currentTarget;
+  const rect=btn.getBoundingClientRect();
+  if(_msKey===k){hideMsDrop();return;}
+  _msKey=k;
+  renderMsDrop(k,rect);
+}
+function renderMsDrop(k,rect){
+  const drop=document.getElementById('msdrop');
+  const opts=_msDrop_opts[k]||[];
+  const sel=Array.isArray(filters[k])?filters[k]:[];
+  const allChk=sel.length===0;
+  drop.innerHTML=
+    `<div class="ms-all" onclick="clearFSel('${k}')"><input type="checkbox" ${allChk?'checked':''} style="pointer-events:none"> 전체 (선택 해제)</div>`+
+    `<div class="ms-item" onclick="toggleFSel('${k}','__empty__')"><input type="checkbox" ${sel.includes('__empty__')?'checked':''} style="pointer-events:none"> <span>비어있음</span></div>`+
+    opts.map(o=>`<div class="ms-item" onclick="toggleFSel('${k}',${JSON.stringify(o)})"><input type="checkbox" ${sel.includes(o)?'checked':''} style="pointer-events:none"> <span>${o}</span></div>`).join('');
+  drop.style.left=rect.left+'px';
+  drop.style.top=(rect.bottom+2)+'px';
+  drop.classList.add('show');
+}
+function hideMsDrop(){
+  document.getElementById('msdrop').classList.remove('show');
+  _msKey=null;
+}
+function toggleFSel(k,v){
+  if(!Array.isArray(filters[k]))filters[k]=[];
+  const idx=filters[k].indexOf(v);
+  if(idx>=0)filters[k].splice(idx,1);
+  else filters[k].push(v);
+  commitEdit(true);
+  renderLedger();
+  if(_msKey===k){
+    const btn=document.querySelector(`[data-mskey="${k}"]`);
+    if(btn)renderMsDrop(k,btn.getBoundingClientRect());
+  }
+}
+function clearFSel(k){
+  filters[k]=[];
+  commitEdit(true);
+  renderLedger();
+  hideMsDrop();
+}
 function filterUncat(){
   // 중분류 미작성 필터 토글
-  if(filters.cat2==='__empty__'){filters.cat2='';}
-  else{filters.cat2='__empty__';}
+  if(!Array.isArray(filters.cat2))filters.cat2=[];
+  const idx=filters.cat2.indexOf('__empty__');
+  if(idx>=0)filters.cat2.splice(idx,1);
+  else filters.cat2=['__empty__'];
   commitEdit(true); renderLedger();
 }
 function doSort(k){
