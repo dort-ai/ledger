@@ -1198,7 +1198,7 @@ function renderLedger(){
       fh=`<div class="ms-wrap"><button class="ms-btn${fv.length?' ms-active':''}" data-mskey="${col.k}" onclick="showMsDrop(event,'${col.k}')">${lbl}</button></div>`;
     } else if(col.filter==='text'){
       const fv=(filters[col.k]||'').replace(/"/g,'&quot;');
-      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oninput="if(!event.isComposing)setF('${col.k}',this.value,this)" oncompositionend="setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
+      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oninput="clearTimeout(this._ft);this._ft=setTimeout(()=>setF('${col.k}',this.value,this),180)" oncompositionend="clearTimeout(this._ft);setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
     }
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
