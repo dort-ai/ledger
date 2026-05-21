@@ -1462,6 +1462,9 @@ document.addEventListener('paste', (e) => {
 
 function gridKD(e){
   if(editActive)return; // 편집 중엔 editKD 담당
+  // 필터 input에 포커스 있으면 그리드 단축키 무시
+  const _active=document.activeElement;
+  if(_active&&(_active.tagName==='INPUT'||_active.tagName==='TEXTAREA')&&_active!==editInp)return;
   const ctrl=e.ctrlKey||e.metaKey;
   // Ctrl 단축키
   if(ctrl){
@@ -1770,9 +1773,9 @@ function renderMsDrop(k,rect){
   const sel=Array.isArray(filters[k])?filters[k]:[];
   const allChk=sel.length===0;
   drop.innerHTML=
-    `<div class="ms-all" onclick="clearFSel('${k}')"><input type="checkbox" ${allChk?'checked':''} style="pointer-events:none"> 전체 (선택 해제)</div>`+
-    `<div class="ms-item" onclick="toggleFSel('${k}','__empty__')"><input type="checkbox" ${sel.includes('__empty__')?'checked':''} style="pointer-events:none"> <span>비어있음</span></div>`+
-    opts.map(o=>`<div class="ms-item" onclick="toggleFSel('${k}',${JSON.stringify(o)})"><input type="checkbox" ${sel.includes(o)?'checked':''} style="pointer-events:none"> <span>${o}</span></div>`).join('');
+    `<div class="ms-all" data-k="${k}" data-v="" onclick="clearFSel(this.dataset.k)"><input type="checkbox" ${allChk?'checked':''} style="pointer-events:none"> 전체 (선택 해제)</div>`+
+    `<div class="ms-item" data-k="${k}" data-v="__empty__" onclick="toggleFSelEl(this)"><input type="checkbox" ${sel.includes('__empty__')?'checked':''} style="pointer-events:none"> <span>비어있음</span></div>`+
+    opts.map(o=>`<div class="ms-item" data-k="${k}" data-v="${o.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" onclick="toggleFSelEl(this)"><input type="checkbox" ${sel.includes(o)?'checked':''} style="pointer-events:none"> <span>${o}</span></div>`).join('');
   drop.style.left=rect.left+'px';
   drop.style.top=(rect.bottom+2)+'px';
   drop.classList.add('show');
@@ -1781,6 +1784,7 @@ function hideMsDrop(){
   document.getElementById('msdrop').classList.remove('show');
   _msKey=null;
 }
+function toggleFSelEl(el){toggleFSel(el.dataset.k, el.dataset.v);}
 function toggleFSel(k,v){
   if(!Array.isArray(filters[k]))filters[k]=[];
   const idx=filters[k].indexOf(v);
