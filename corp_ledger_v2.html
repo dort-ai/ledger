@@ -2195,7 +2195,7 @@ function renderPL(){
   // 연결 토글 버튼 (전체합산 + 내부거래 설정 있을 때만)
   const toggleBar=isAll&&icCats.length>0
     ?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <button class="btn${consMode?''}" style="${consMode?'background:#1a7a4a;color:#fff;border-color:#1a7a4a':''}font-size:11px" onclick="_plConsolidated=!_plConsolidated;renderPL()">
+        <button class="${consMode?'btn btn-p':'btn'}" style="${consMode?'background:#1a7a4a;border-color:#1a7a4a':''}font-size:11px" onclick="_plConsolidated=!_plConsolidated;renderPL()">
           ${consMode?'✅ 연결 보기 (상계 적용 중)':'○ 연결 보기 (상계 없음)'}
         </button>
         <span style="font-size:10px;color:#aaa">내부거래 상계: ${icCats.join(', ')}</span>
