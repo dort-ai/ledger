@@ -3196,61 +3196,47 @@ renderSidebar();
 
 const FORECAST_YEAR_KEY = () => String(new Date().getFullYear());
 
-// 손익 추정 항목 정의 (시트 구조 그대로)
-const PNL_ITEMS = [
-  {t:'h', l:'매출'},
-  {t:'i', l:'임대매출(직영)',  k:'임대매출직영',  cat2:'임대매출(직영)'},
-  {t:'i', l:'세일즈위탁',      k:'세일즈위탁',    cat2:'세일즈위탁'},
-  {t:'i', l:'뒤틱운영',        k:'뒤틱운영',      cat2:'뒤틱운영'},
-  {t:'i', l:'플랫폼',          k:'플랫폼',        cat2:'플랫폼'},
-  {t:'i', l:'관리서비스(B2B)', k:'관리서비스B2B', cat2:'관리서비스(B2B)'},
-  {t:'i', l:'기타서비스',      k:'기타서비스',    cat2:'기타서비스'},
-  {t:'s', l:'총매출',          ks:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스']},
-  {t:'h', l:'매출원가'},
-  {t:'i', l:'지급임차료',      k:'지급임차료',    cat2:'지급임차료'},
-  {t:'i', l:'건물관리비',      k:'건물관리비',    cat2:'건물관리비'},
-  {t:'i', l:'지점공과금',      k:'지점공과금',    cat2:'지점공과금'},
-  {t:'i', l:'지점통신비',      k:'지점통신비',    cat2:'지점통신비'},
-  {t:'i', l:'청소비',          k:'청소비',        cat2:'청소비'},
-  {t:'i', l:'지점외주비',      k:'지점외주비',    cat2:'지점외주비'},
-  {t:'i', l:'지점소모품',      k:'지점소모품',    cat2:'지점소모품'},
-  {t:'i', l:'수선비',          k:'수선비',        cat2:'수선비'},
-  {t:'i', l:'중개비',          k:'중개비',        cat2:'중개비'},
-  {t:'i', l:'CX지급수수료',    k:'CX지급수수료',  cat2:'CX지급수수료'},
-  {t:'i', l:'지점세금',        k:'지점세금',      cat2:'지점세금'},
-  {t:'i', l:'감가상각(인테리어)',k:'감가인테',     cat2:'감가상각(인테리어)'},
-  {t:'s', l:'총매출원가',      ks:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테']},
-  {t:'s2',l:'✦ 매출총이익',   p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테']},
-  {t:'h', l:'판관비'},
-  {t:'i', l:'감가상각(사무실)',k:'감가사무실',    cat2:'감가상각(사무실)'},
-  {t:'i', l:'지급수수료',      k:'지급수수료',    cat2:'지급수수료'},
-  {t:'i', l:'직원급여',        k:'직원급여',      cat2:'직원급여'},
-  {t:'i', l:'복리후생비',      k:'복리후생비',    cat2:'복리후생비'},
-  {t:'i', l:'외주비',          k:'외주비',        cat2:'외주비'},
-  {t:'i', l:'마케팅비용',      k:'마케팅비용',    cat2:'마케팅비용'},
-  {t:'i', l:'커뮤니티활동비',  k:'커뮤니티활동비',cat2:'커뮤니티활동비'},
-  {t:'i', l:'소모품비',        k:'소모품비',      cat2:'소모품비'},
-  {t:'i', l:'접대비',          k:'접대비',        cat2:'접대비'},
-  {t:'i', l:'차량유지비',      k:'차량유지비',    cat2:'차량유지비'},
-  {t:'i', l:'운반비',          k:'운반비',        cat2:'운반비'},
-  {t:'i', l:'여비교통비',      k:'여비교통비',    cat2:'여비교통비'},
-  {t:'i', l:'보험료',          k:'보험료',        cat2:'보험료'},
-  {t:'i', l:'교육훈련비',      k:'교육훈련비',    cat2:'교육훈련비'},
-  {t:'i', l:'전력비',          k:'전력비',        cat2:'전력비'},
-  {t:'i', l:'통신비',          k:'통신비',        cat2:'통신비'},
-  {t:'i', l:'세금과공과',      k:'세금과공과',    cat2:'세금과공과'},
-  {t:'i', l:'사무실세',        k:'사무실세',      cat2:'사무실세'},
-  {t:'s', l:'판관비 합계',     ks:['감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세']},
-  {t:'s2',l:'✦ 영업이익',     p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테','감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세'], bold:1},
-  {t:'h', l:'영업외'},
-  {t:'i', l:'잡이익',          k:'잡이익',        cat2:'잡이익'},
-  {t:'i', l:'정부지원금',      k:'정부지원금',    cat2:'정부지원금'},
-  {t:'i', l:'이자수익',        k:'이자수익',      cat2:'이자수익'},
-  {t:'i', l:'잡손실',          k:'잡손실',        cat2:'잡손실'},
-  {t:'i', l:'이자비용',        k:'이자비용',      cat2:'이자비용'},
-  {t:'i', l:'법인세',          k:'법인세',        cat2:'법인세'},
-  {t:'s2',l:'✦ 당기순이익',   p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스','잡이익','정부지원금','이자수익'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테','감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세','잡손실','이자비용','법인세'], bold:1},
+// 손익계산서와 동일한 cat1 순서 정의
+const PNL_CAT1_ORDER = [
+  {cat1:'매출액',          label:'Ⅰ. 매출액',          sign: 1},
+  {cat1:'매출원가',        label:'Ⅱ. 매출원가',        sign:-1},
+  {cat1:null,              label:'Ⅲ. 매출이익',        type:'calc', id:'매출이익'},
+  {cat1:'판매비와관리비',  label:'Ⅳ. 판매비와관리비',  sign:-1},
+  {cat1:null,              label:'Ⅴ. 영업이익',        type:'calc', id:'영업이익', bold:1},
+  {cat1:'영업외수익',      label:'Ⅵ. 영업외수익',      sign: 1},
+  {cat1:'영업외비용',      label:'Ⅶ. 영업외비용',      sign:-1},
+  {cat1:'법인세',          label:'Ⅷ. 법인세',          sign:-1},
+  {cat1:null,              label:'Ⅸ. 당기순이익',      type:'calc', id:'당기순이익', bold:1},
 ];
+
+// cat1 그룹별로 실제 계정과목(cat2)을 읽어 동적으로 PNL 항목 배열 생성
+function buildPnlItems(cid){
+  const ac=getAc(cid);
+  const items=[];
+  // cat1별 cat2 keys 수집 (나중에 소계 계산용)
+  const cat1Keys={};  // {cat1: [k, ...]}
+  PNL_CAT1_ORDER.forEach(sec=>{
+    if(sec.type==='calc'){
+      items.push({t:'sc', l:'✦ '+sec.label.replace(/^[Ⅰ-Ⅸ]+\.\s*/,''), id:sec.id, bold:sec.bold||0, cat1Keys});
+      return;
+    }
+    const c1=sec.cat1;
+    const acObj=ac[c1]||{};
+    // 계정과목에 등록된 cat2 순서 (손익계산서와 동일 로직)
+    const ord=acObj._order||Object.keys(acObj).filter(k=>k!=='_cat4'&&k!=='_order').sort();
+    items.push({t:'h', l:sec.label, cat1:c1});
+    const ks=[];
+    ord.forEach(c2=>{
+      const k=c1+'::'+c2;  // 고유 key: cat1::cat2
+      items.push({t:'i', l:c2, k, cat1:c1, cat2:c2});
+      ks.push(k);
+    });
+    cat1Keys[c1]=ks;
+    if(ks.length>0)
+      items.push({t:'s', l:sec.label.replace(/^[Ⅰ-Ⅸ]+\.\s*/,'')+'  합계', ks, cat1:c1});
+  });
+  return items;
+}
 
 // 현금 추정 항목 정의
 const CASH_ITEMS = [
@@ -3305,13 +3291,11 @@ function setForecastCell(cid, year, section, key, month, val){
 }
 
 // 실적 집계: 해당 법인·연도·월·cat2 합산
-function getForecastActual(cid, year, cat2List, month){
-  const monthStr = month < 10 ? `${year.slice(2)}년 0${month}월` : `${year.slice(2)}년 ${month}월`;
-  // cat2List는 배열 또는 단일 문자열
-  const cats = Array.isArray(cat2List) ? cat2List : [cat2List];
+function getForecastActual(cid, year, cat1, cat2, month){
+  const y2=String(year).slice(-2);
+  const monthStr = month < 10 ? `${y2}년 0${month}월` : `${y2}년 ${month}월`;
   return ST.rows
-    .filter(r=>r.companyId===cid && r.month===monthStr)
-    .filter(r=>cats.some(c=>r.cat2===c||r.cat1===c))
+    .filter(r=>r.companyId===cid && r.month===monthStr && r.cat1===cat1 && r.cat2===cat2)
     .reduce((s,r)=>s+num(r.income)-num(r.expense),0);
 }
 
@@ -3324,6 +3308,14 @@ function calcForecastSubtotal(cid, year, section, item, month){
     const plus=(item.p||[]).reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
     const minus=(item.m||[]).reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
     return plus-minus;
+  }
+  // 손익계산서 calc 행: cat1 그룹 합산으로 계산
+  if(item.t==='sc'){
+    const ck=item.cat1Keys||{};
+    const sumCat1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
+    if(item.id==='매출이익')  return sumCat1('매출액')+sumCat1('매출원가');
+    if(item.id==='영업이익')  return sumCat1('매출액')+sumCat1('매출원가')+sumCat1('판매비와관리비');
+    if(item.id==='당기순이익')return sumCat1('매출액')+sumCat1('매출원가')+sumCat1('판매비와관리비')+sumCat1('영업외수익')+sumCat1('영업외비용')+sumCat1('법인세');
   }
   return 0;
 }
@@ -3338,20 +3330,23 @@ function applyEventToForecast(event){
   // 보증금 회수 → 현금
   if(!cash['임차보증금회수']) cash['임차보증금회수']={};
   cash['임차보증금회수'][mo]=(cash['임차보증금회수'][mo]||0)+event.deposit;
-  // 권리금 → 기타서비스(영업외수익)
+  // 권리금 → 영업외수익::기타수익
   if(event.premium>0){
-    if(!pnl['기타서비스']) pnl['기타서비스']={};
-    pnl['기타서비스'][mo]=(pnl['기타서비스'][mo]||0)+event.premium;
+    const premKey='영업외수익::기타수익';
+    if(!pnl[premKey]) pnl[premKey]={};
+    pnl[premKey][mo]=(pnl[premKey][mo]||0)+event.premium;
   }
   // 처분월부터 연말까지 임차료·관리비 차감
   for(let m=mo;m<=12;m++){
     if(event.rent>0){
-      if(!pnl['지급임차료']) pnl['지급임차료']={};
-      pnl['지급임차료'][m]=Math.max(0,(pnl['지급임차료'][m]||0)-event.rent);
+      const rentKey='매출원가::지급임차료';
+      if(!pnl[rentKey]) pnl[rentKey]={};
+      pnl[rentKey][m]=Math.max(0,(pnl[rentKey][m]||0)-event.rent);
     }
     if(event.mgmtFee>0){
-      if(!pnl['건물관리비']) pnl['건물관리비']={};
-      pnl['건물관리비'][m]=Math.max(0,(pnl['건물관리비'][m]||0)-event.mgmtFee);
+      const mgmtKey='매출원가::건물관리비';
+      if(!pnl[mgmtKey]) pnl[mgmtKey]={};
+      pnl[mgmtKey][m]=Math.max(0,(pnl[mgmtKey][m]||0)-event.mgmtFee);
     }
   }
   save();
@@ -3380,7 +3375,7 @@ function renderForecastTable(cid, year, items, section, tbodyId){
       tbody.appendChild(tr);
       return;
     }
-    const isSub=(item.t==='s'||item.t==='s2');
+    const isSub=(item.t==='s'||item.t==='s2'||item.t==='sc');
     const tr=document.createElement('tr');
     // 라벨 셀
     const lc=document.createElement('td');
@@ -3429,8 +3424,8 @@ function renderForecastTable(cid, year, items, section, tbodyId){
 
 function fcSetCellContent(td,v,cid,year,section,item,m){
   let actHtml='';
-  if(_fcCompare && item.t==='i' && item.cat2){
-    const act=getForecastActual(cid,year,item.cat2,m);
+  if(_fcCompare && item.t==='i' && item.cat1 && item.cat2){
+    const act=getForecastActual(cid,year,item.cat1,item.cat2,m);
     if(act!==0||v!==0){
       const rate=v!==0?Math.round(Math.abs(act)/Math.abs(v)*100):0;
       const cls=rate>=90?'color:#1a7a4a':'color:#c0392b';
@@ -3492,7 +3487,7 @@ function fcCommitEdit(){
 }
 
 function fcRefreshTable(){
-  const items=_fcSec==='pnl'?PNL_ITEMS:CASH_ITEMS;
+  const items=_fcSec==='pnl'?buildPnlItems(_fcCid):CASH_ITEMS;
   renderForecastTable(_fcCid,_fcYear2,items,_fcSec,_fcSec+'FcBody');
 }
 
@@ -3574,7 +3569,7 @@ function fcStartEditAnchor(clearVal){
 }
 
 function fcMoveAnchor(dr,dc,startEdit2){
-  const items=_fcSec==='pnl'?PNL_ITEMS:CASH_ITEMS;
+  const items=_fcItems.length?_fcItems:(_fcSec==='pnl'?buildPnlItems(_fcCid):CASH_ITEMS);
   let ri=_fcAnchor.ri, mi=_fcAnchor.mi;
   if(ri<0){ri=0;mi=1;}
   // 월 이동
@@ -3732,7 +3727,7 @@ function renderForecast(){
     </div>
     <div id="fcEventsWrap" style="${_fcSection!=='events'?'display:none':''}"></div>
   `;
-  if(_fcSection==='pnl') renderForecastTable(cid,year,PNL_ITEMS,'pnl','pnlFcBody');
+  if(_fcSection==='pnl') renderForecastTable(cid,year,buildPnlItems(cid),'pnl','pnlFcBody');
   else if(_fcSection==='cash') renderForecastTable(cid,year,CASH_ITEMS,'cash','cashFcBody');
   else renderForecastEvents(cid,year);
 }
