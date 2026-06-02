@@ -3561,7 +3561,7 @@ function fcGridKD(e){
 }
 
 function fcStartEditAnchor(clearVal){
-  const items=_fcSec==='pnl'?PNL_ITEMS:CASH_ITEMS;
+  const items=_fcItems.length?_fcItems:(_fcSec==='pnl'?buildPnlItems(_fcCid):CASH_ITEMS);
   const tbody=document.getElementById(_fcSec+'FcBody');
   if(!tbody)return;
   const td=tbody.querySelector(`td[data-ri="${_fcAnchor.ri}"][data-mi="${_fcAnchor.mi}"]`);
@@ -3682,9 +3682,12 @@ function renderForecast(){
     items.filter(i=>i.t==='i').forEach(i=>{for(let m=1;m<=12;m++) totals[i.k]=(totals[i.k]||0)+getForecastVal(cid,year,section,i.k,m);});
     return totals;
   };
-  const pt=annMat(PNL_ITEMS,'pnl');
-  const totalRev=(['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스']).reduce((s,k)=>s+(pt[k]||0),0);
-  const netProfit=totalRev-Object.keys(pt).filter(k=>k!=='잡이익'&&k!=='정부지원금'&&k!=='이자수익').reduce((s,k)=>s+(pt[k]||0),0)+(pt['잡이익']||0)+(pt['정부지원금']||0)+(pt['이자수익']||0);
+  const pnlItems=buildPnlItems(cid);
+  const pt=annMat(pnlItems,'pnl');
+  // 요약카드: cat1::cat2 키 기준으로 매출액/순이익 계산
+  const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=getForecastVal(cid,year,'pnl',i.k,m);return s;},0);
+  const totalRev=sumCat1Annual('매출액');
+  const netProfit=sumCat1Annual('매출액')+sumCat1Annual('매출원가')+sumCat1Annual('판매비와관리비')+sumCat1Annual('영업외수익')+sumCat1Annual('영업외비용')+sumCat1Annual('법인세');
   const evCount=(ST.forecast[cid][year].events||[]).length;
 
   document.getElementById('forecast-content').innerHTML=`
