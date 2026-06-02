@@ -213,9 +213,9 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
       <button class="tab" onclick="switchTab('monthly')">월별</button>
       <button class="tab" onclick="switchTab('pl')">손익계산서</button>
       <button class="tab" onclick="switchTab('cashflow')">현금흐름</button>
+      <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
       <button class="tab" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
       <button class="tab" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
-      <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
       <button class="tab" onclick="switchTab('settings')" id="tab-settings-btn">설정</button>
     </div>
 
@@ -1916,10 +1916,10 @@ function selectCo(id){
 async function switchTab(t){
   if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
-  ['ledger','monthly','pl','cashflow','learn','import','forecast','settings'].forEach(id=>{
+  ['ledger','monthly','pl','cashflow','forecast','learn','import','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
   });
-  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','learn','import','forecast','settings'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','forecast','learn','import','settings'][i]===t));
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
