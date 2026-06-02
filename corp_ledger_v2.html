@@ -215,6 +215,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
       <button class="tab" onclick="switchTab('cashflow')">현금흐름</button>
       <button class="tab" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
       <button class="tab" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
+      <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
       <button class="tab" onclick="switchTab('settings')" id="tab-settings-btn">설정</button>
     </div>
 
@@ -348,6 +349,9 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
     </div>
 
     <!-- 설정 -->
+    <div id="tab-forecast" style="display:none">
+      <div id="forecast-content" style="padding:12px"></div>
+    </div>
     <div id="tab-settings" style="display:none">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="card">
@@ -638,11 +642,12 @@ function loadState(){
       s.fixedRules=s.fixedRules||[];
       s.learnUploads=s.learnUploads||[];
       s.intercompanyCats=s.intercompanyCats||[];
+      s.forecast=s.forecast||{};
       localStorage.setItem('ledger_v6',JSON.stringify(s));
       return s;
     }
   }
-  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[]};
+  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[],forecast:{}};
 }
 let ST=loadState();
 let curCo=null, editCoId=null, curTab='ledger';
@@ -1911,10 +1916,10 @@ function selectCo(id){
 function switchTab(t){
   if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
-  ['ledger','monthly','pl','cashflow','learn','import','settings'].forEach(id=>{
+  ['ledger','monthly','pl','cashflow','learn','import','forecast','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
   });
-  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','learn','import','settings'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','learn','import','forecast','settings'][i]===t));
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
@@ -1926,6 +1931,7 @@ function renderCurTab(){
   else if(curTab==='pl')renderPL();
   else if(curTab==='cashflow')renderCashflow();
   else if(curTab==='learn')renderLearn();
+  else if(curTab==='forecast')renderForecast();
   else if(curTab==='settings')renderSettings();
 }
 
@@ -2794,6 +2800,13 @@ function dov(e,el){e.preventDefault();el.classList.add('drag');}
 function dlv(el){el.classList.remove('drag');}
 function dof(e,type,el){e.preventDefault();el.classList.remove('drag');const f=e.dataTransfer.files[0];if(f)pf(f,type);}
 function hf(e,type){const f=e.target.files[0];if(f)pf(f,type);e.target.value='';}
+function makeTxFingerprint(row){
+  const normD=d=>{const m=String(d||'').match(/(\d{2,4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})/);return m?`${m[1].length===2?'20'+m[1]:m[1]}${m[2]}${m[3]}`:String(d||'');};
+  const amt=num(row.income||0)-num(row.expense||0);
+  const desc=(row.desc||'').replace(/\s+/g,'').toLowerCase();
+  const wallet=(row.wallet||'').replace(/\s+/g,'');
+  return `${row.companyId}_${normD(row.date)}_${amt}_${desc}_${wallet}`;
+}
 function pf(file,type){
   const reader=new FileReader();
   reader.onload=function(e){
@@ -2812,9 +2825,25 @@ function pf(file,type){
 }
 function showPreview(type,data){
   document.getElementById('preview-area').style.display='';
+  // 은행/가계부 내역 임포트 시 기존 행과 중복 감지
+  let dupCount=0;
+  if(type==='bank'||type==='ledger'){
+    const existingFps=new Set(ST.rows.map(makeTxFingerprint));
+    const cid=curCo;
+    data.forEach(r=>{
+      const date=String(r['거래일시']||'').trim(),desc=String(r['기재내용']||'').trim();
+      const income=num(r['입금(원)']||r['입금']||0),expense=num(r['지급(원)']||r['지급']||0);
+      const wallet=String(r['계좌']||'').trim();
+      const fp=makeTxFingerprint({companyId:cid,date,desc,income:String(income),expense:String(expense),wallet});
+      r._isDup=existingFps.has(fp);
+      if(r._isDup)dupCount++;
+    });
+  }
+  const dupInfo=dupCount>0?`<span style="color:#c0392b;font-size:11px;margin-left:8px">⚠ 중복 ${dupCount}건 감지</span>`:'';
   document.getElementById('prev-count').textContent=`(${data.length}건)`;
-  const cols=Object.keys(data[0]);
-  document.getElementById('prev-table').innerHTML=`<table style="border-collapse:collapse"><thead><tr>${cols.map(c=>`<th style="background:#f0f0ee;padding:4px 7px;font-size:10px;border:1px solid #e0e0e0">${c}</th>`).join('')}</tr></thead><tbody>${data.slice(0,12).map(r=>`<tr>${cols.map(c=>`<td style="padding:3px 7px;font-size:11px;border:1px solid #f0f0f0">${r[c]}</td>`).join('')}</tr>`).join('')}${data.length>12?`<tr><td colspan="${cols.length}" style="text-align:center;color:#aaa;padding:4px;font-size:11px">... 외 ${data.length-12}건</td></tr>`:''}</tbody></table>`;
+  document.getElementById('prev-count').insertAdjacentHTML('afterend',dupInfo);
+  const cols=Object.keys(data[0]).filter(k=>k!=='_isDup');
+  document.getElementById('prev-table').innerHTML=`<table style="border-collapse:collapse"><thead><tr>${cols.map(c=>`<th style="background:#f0f0ee;padding:4px 7px;font-size:10px;border:1px solid #e0e0e0">${c}</th>`).join('')}</tr></thead><tbody>${data.slice(0,12).map(r=>`<tr style="${r._isDup?'background:#fff0f0;opacity:.65':''}">${cols.map(c=>`<td style="padding:3px 7px;font-size:11px;border:1px solid #f0f0f0">${r._isDup&&c===cols[0]?`<span style="color:#c0392b;font-size:10px;margin-right:3px">[중복]</span>`:''}${r[c]}</td>`).join('')}</tr>`).join('')}${data.length>12?`<tr><td colspan="${cols.length}" style="text-align:center;color:#aaa;padding:4px;font-size:11px">... 외 ${data.length-12}건</td></tr>`:''}</tbody></table>`;
   document.getElementById('preview-area').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function cancelImport(){pendingImport={type:null,data:[]};document.getElementById('preview-area').style.display='none';}
@@ -2843,16 +2872,20 @@ function confirmImport(){
     });
     alert(`${count}건 완료`);
   } else if(type==='bank'){
+    const existingFps=new Set(ST.rows.map(makeTxFingerprint));
+    let dupCount=0;
     data.forEach(r=>{
       const date=String(r['거래일시']||'').trim(),desc=String(r['기재내용']||'').trim();
       if(!date&&!desc)return;
       const expense=num(r['지급(원)']||r['지급']||0),income=num(r['입금(원)']||r['입금']||0),wallet=String(r['계좌']||'').trim();
+      const fp=makeTxFingerprint({companyId:cid,date,desc,income:String(income),expense:String(expense),wallet});
+      if(existingFps.has(fp)){dupCount++;return;}
       const m=date.match(/(\d{2,4})[.\-\/](\d{2})/);
       const month=m?(m[1].length===4?m[1].slice(2):m[1])+'년 '+m[2]+'월':'';
       ST.rows.push({id:uid(),companyId:cid,date,month,desc,income:String(income||0),expense:String(expense||0),wallet,cat1:'',cat2:'',cat3:'',cat4:'',note:''});
       count++;
     });
-    alert(`${count}건 완료`);
+    alert(dupCount>0?`${count}건 추가 완료 (중복 ${dupCount}건 제외)`:`${count}건 완료`);
   } else if(type==='card'){
     let matched=0,unmatched=0;
     const normDate=d=>{const m=String(d||'').match(/(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})/);return m?`${m[1]}${m[2]}${m[3]}`:'';};
@@ -3156,6 +3189,372 @@ document.addEventListener('keydown', (e) => {
 });
 
 renderSidebar();
+
+// ══════════════════════════════════════════════
+// 손익/현금흐름 추정 탭
+// ══════════════════════════════════════════════
+
+const FORECAST_YEAR_KEY = () => String(new Date().getFullYear());
+
+// 손익 추정 항목 정의 (시트 구조 그대로)
+const PNL_ITEMS = [
+  {t:'h', l:'매출'},
+  {t:'i', l:'임대매출(직영)',  k:'임대매출직영',  cat2:'임대매출(직영)'},
+  {t:'i', l:'세일즈위탁',      k:'세일즈위탁',    cat2:'세일즈위탁'},
+  {t:'i', l:'뒤틱운영',        k:'뒤틱운영',      cat2:'뒤틱운영'},
+  {t:'i', l:'플랫폼',          k:'플랫폼',        cat2:'플랫폼'},
+  {t:'i', l:'관리서비스(B2B)', k:'관리서비스B2B', cat2:'관리서비스(B2B)'},
+  {t:'i', l:'기타서비스',      k:'기타서비스',    cat2:'기타서비스'},
+  {t:'s', l:'총매출',          ks:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스']},
+  {t:'h', l:'매출원가'},
+  {t:'i', l:'지급임차료',      k:'지급임차료',    cat2:'지급임차료'},
+  {t:'i', l:'건물관리비',      k:'건물관리비',    cat2:'건물관리비'},
+  {t:'i', l:'지점공과금',      k:'지점공과금',    cat2:'지점공과금'},
+  {t:'i', l:'지점통신비',      k:'지점통신비',    cat2:'지점통신비'},
+  {t:'i', l:'청소비',          k:'청소비',        cat2:'청소비'},
+  {t:'i', l:'지점외주비',      k:'지점외주비',    cat2:'지점외주비'},
+  {t:'i', l:'지점소모품',      k:'지점소모품',    cat2:'지점소모품'},
+  {t:'i', l:'수선비',          k:'수선비',        cat2:'수선비'},
+  {t:'i', l:'중개비',          k:'중개비',        cat2:'중개비'},
+  {t:'i', l:'CX지급수수료',    k:'CX지급수수료',  cat2:'CX지급수수료'},
+  {t:'i', l:'지점세금',        k:'지점세금',      cat2:'지점세금'},
+  {t:'i', l:'감가상각(인테리어)',k:'감가인테',     cat2:'감가상각(인테리어)'},
+  {t:'s', l:'총매출원가',      ks:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테']},
+  {t:'s2',l:'✦ 매출총이익',   p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테']},
+  {t:'h', l:'판관비'},
+  {t:'i', l:'감가상각(사무실)',k:'감가사무실',    cat2:'감가상각(사무실)'},
+  {t:'i', l:'지급수수료',      k:'지급수수료',    cat2:'지급수수료'},
+  {t:'i', l:'직원급여',        k:'직원급여',      cat2:'직원급여'},
+  {t:'i', l:'복리후생비',      k:'복리후생비',    cat2:'복리후생비'},
+  {t:'i', l:'외주비',          k:'외주비',        cat2:'외주비'},
+  {t:'i', l:'마케팅비용',      k:'마케팅비용',    cat2:'마케팅비용'},
+  {t:'i', l:'커뮤니티활동비',  k:'커뮤니티활동비',cat2:'커뮤니티활동비'},
+  {t:'i', l:'소모품비',        k:'소모품비',      cat2:'소모품비'},
+  {t:'i', l:'접대비',          k:'접대비',        cat2:'접대비'},
+  {t:'i', l:'차량유지비',      k:'차량유지비',    cat2:'차량유지비'},
+  {t:'i', l:'운반비',          k:'운반비',        cat2:'운반비'},
+  {t:'i', l:'여비교통비',      k:'여비교통비',    cat2:'여비교통비'},
+  {t:'i', l:'보험료',          k:'보험료',        cat2:'보험료'},
+  {t:'i', l:'교육훈련비',      k:'교육훈련비',    cat2:'교육훈련비'},
+  {t:'i', l:'전력비',          k:'전력비',        cat2:'전력비'},
+  {t:'i', l:'통신비',          k:'통신비',        cat2:'통신비'},
+  {t:'i', l:'세금과공과',      k:'세금과공과',    cat2:'세금과공과'},
+  {t:'i', l:'사무실세',        k:'사무실세',      cat2:'사무실세'},
+  {t:'s', l:'판관비 합계',     ks:['감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세']},
+  {t:'s2',l:'✦ 영업이익',     p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테','감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세'], bold:1},
+  {t:'h', l:'영업외'},
+  {t:'i', l:'잡이익',          k:'잡이익',        cat2:'잡이익'},
+  {t:'i', l:'정부지원금',      k:'정부지원금',    cat2:'정부지원금'},
+  {t:'i', l:'이자수익',        k:'이자수익',      cat2:'이자수익'},
+  {t:'i', l:'잡손실',          k:'잡손실',        cat2:'잡손실'},
+  {t:'i', l:'이자비용',        k:'이자비용',      cat2:'이자비용'},
+  {t:'i', l:'법인세',          k:'법인세',        cat2:'법인세'},
+  {t:'s2',l:'✦ 당기순이익',   p:['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스','잡이익','정부지원금','이자수익'], m:['지급임차료','건물관리비','지점공과금','지점통신비','청소비','지점외주비','지점소모품','수선비','중개비','CX지급수수료','지점세금','감가인테','감가사무실','지급수수료','직원급여','복리후생비','외주비','마케팅비용','커뮤니티활동비','소모품비','접대비','차량유지비','운반비','여비교통비','보험료','교육훈련비','전력비','통신비','세금과공과','사무실세','잡손실','이자비용','법인세'], bold:1},
+];
+
+// 현금 추정 항목 정의
+const CASH_ITEMS = [
+  {t:'h', l:'임대차보증금'},
+  {t:'i', l:'보증금 반환(회수)', k:'임차보증금회수', cat2:'보증금반환'},
+  {t:'i', l:'보증금 지출',       k:'임차보증금지출', cat2:'보증금지출'},
+  {t:'s', l:'임대차보증금 변동', ks:['임차보증금회수','임차보증금지출']},
+  {t:'h', l:'전차보증금'},
+  {t:'i', l:'전차보증금 수취',   k:'전차보증금수취', cat2:'전차보증금수취'},
+  {t:'i', l:'전차보증금 반환',   k:'전차보증금반환', cat2:'전차보증금반환'},
+  {t:'s', l:'전차보증금 변동',   ks:['전차보증금수취','전차보증금반환']},
+  {t:'h', l:'재무활동'},
+  {t:'i', l:'차입금 실행',       k:'차입금',        cat2:'차입금'},
+  {t:'i', l:'차입금 상환',       k:'차입금상환',    cat2:'차입금상환'},
+  {t:'s', l:'재무활동 변동',     ks:['차입금','차입금상환']},
+  {t:'h', l:'투자활동'},
+  {t:'i', l:'투자금 반환',       k:'투자금반환',    cat2:'투자금반환'},
+  {t:'i', l:'대여금 반환',       k:'대여금반환',    cat2:'대여금반환'},
+  {t:'i', l:'투자금',            k:'투자금',        cat2:'투자금'},
+  {t:'i', l:'대여금',            k:'대여금',        cat2:'대여금'},
+  {t:'s', l:'투자활동 변동',     ks:['투자금반환','대여금반환','투자금','대여금']},
+  {t:'h', l:'CAPEX'},
+  {t:'i', l:'차량',              k:'CAPEX차량',     cat2:'차량'},
+  {t:'i', l:'인테리어비품',      k:'CAPEX비품',     cat2:'인테리어비품'},
+  {t:'i', l:'인테리어시공',      k:'CAPEX시공',     cat2:'인테리어시공'},
+  {t:'s', l:'CAPEX 변동',        ks:['CAPEX차량','CAPEX비품','CAPEX시공']},
+  {t:'h', l:'잔액 요약'},
+  {t:'s2',l:'✦ 현금 변동 합계', p:['임차보증금회수','전차보증금수취','차입금','투자금반환','대여금반환'], m:['임차보증금지출','전차보증금반환','차입금상환','투자금','대여금','CAPEX차량','CAPEX비품','CAPEX시공'], bold:1},
+];
+
+let _fcYear = FORECAST_YEAR_KEY();
+let _fcCompare = false;
+let _fcSection = 'pnl'; // 'pnl' | 'cash' | 'events'
+
+function ensureForecast(cid, year){
+  if(!ST.forecast) ST.forecast={};
+  if(!ST.forecast[cid]) ST.forecast[cid]={};
+  if(!ST.forecast[cid][year]) ST.forecast[cid][year]={pnl:{},cash:{},events:[]};
+  return ST.forecast[cid][year];
+}
+
+function getForecastVal(cid, year, section, key, month){
+  const fc=ST.forecast?.[cid]?.[year]?.[section]?.[key];
+  return fc?.[month]||0;
+}
+
+function setForecastCell(cid, year, section, key, month, val){
+  ensureForecast(cid, year);
+  if(!ST.forecast[cid][year][section][key]) ST.forecast[cid][year][section][key]={};
+  ST.forecast[cid][year][section][key][month]=val;
+  save();
+}
+
+// 실적 집계: 해당 법인·연도·월·cat2 합산
+function getForecastActual(cid, year, cat2List, month){
+  const monthStr = month < 10 ? `${year.slice(2)}년 0${month}월` : `${year.slice(2)}년 ${month}월`;
+  // cat2List는 배열 또는 단일 문자열
+  const cats = Array.isArray(cat2List) ? cat2List : [cat2List];
+  return ST.rows
+    .filter(r=>r.companyId===cid && r.month===monthStr)
+    .filter(r=>cats.some(c=>r.cat2===c||r.cat1===c))
+    .reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+}
+
+// 추정치 내 소계 계산
+function calcForecastSubtotal(cid, year, section, item, month){
+  if(item.t==='s'){
+    return item.ks.reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
+  }
+  if(item.t==='s2'){
+    const plus=(item.p||[]).reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
+    const minus=(item.m||[]).reduce((s,k)=>s+getForecastVal(cid,year,section,k,month),0);
+    return plus-minus;
+  }
+  return 0;
+}
+
+// 지점 처분 이벤트 → 추정치 자동 반영
+function applyEventToForecast(event){
+  const cid=curCo; const year=_fcYear;
+  ensureForecast(cid,year);
+  const pnl=ST.forecast[cid][year].pnl;
+  const cash=ST.forecast[cid][year].cash;
+  const mo=event.month;
+  // 보증금 회수 → 현금
+  if(!cash['임차보증금회수']) cash['임차보증금회수']={};
+  cash['임차보증금회수'][mo]=(cash['임차보증금회수'][mo]||0)+event.deposit;
+  // 권리금 → 기타서비스(영업외수익)
+  if(event.premium>0){
+    if(!pnl['기타서비스']) pnl['기타서비스']={};
+    pnl['기타서비스'][mo]=(pnl['기타서비스'][mo]||0)+event.premium;
+  }
+  // 처분월부터 연말까지 임차료·관리비 차감
+  for(let m=mo;m<=12;m++){
+    if(event.rent>0){
+      if(!pnl['지급임차료']) pnl['지급임차료']={};
+      pnl['지급임차료'][m]=Math.max(0,(pnl['지급임차료'][m]||0)-event.rent);
+    }
+    if(event.mgmtFee>0){
+      if(!pnl['건물관리비']) pnl['건물관리비']={};
+      pnl['건물관리비'][m]=Math.max(0,(pnl['건물관리비'][m]||0)-event.mgmtFee);
+    }
+  }
+  save();
+  renderForecast();
+}
+
+// 테이블 렌더링
+function renderForecastTable(cid, year, items, section, tbodyId){
+  const tbody=document.getElementById(tbodyId);
+  if(!tbody)return;
+  tbody.innerHTML='';
+  items.forEach((item,ri)=>{
+    if(item.t==='h'){
+      tbody.innerHTML+=`<tr style="background:#e8edf8"><td colspan="14" style="padding:5px 10px;font-weight:700;color:#2a4a8a;font-size:11px;border:1px solid #dde3f0">${item.l}</td></tr>`;
+      return;
+    }
+    let cells=''; let ann=0;
+    const isSub=(item.t==='s'||item.t==='s2');
+    for(let m=1;m<=12;m++){
+      let v;
+      if(item.t==='i') v=getForecastVal(cid,year,section,item.k,m);
+      else v=calcForecastSubtotal(cid,year,section,item,m);
+      ann+=v;
+      const neg=v<0?'color:#c0392b':'';
+      const bg=isSub?'background:#f0f4ff':'';
+      let actHtml='';
+      if(_fcCompare && item.t==='i' && item.cat2){
+        const act=getForecastActual(cid,year,item.cat2,m);
+        if(act!==0||v!==0){
+          const rate=v!==0?Math.round(Math.abs(act)/Math.abs(v)*100):0;
+          const cls=rate>=90?'color:#1a7a4a':'color:#c0392b';
+          actHtml=`<div style="font-size:10px;color:#999;margin-top:1px">실적 ${fmt(Math.abs(act))} <span style="${cls}">${rate}%</span></div>`;
+        }
+      }
+      if(item.t==='i'){
+        cells+=`<td style="padding:3px 6px;border:1px solid #eee;text-align:right;font-size:12px;${neg};cursor:pointer" onclick="fcEditCell(this,'${cid}','${year}','${section}','${item.k}',${m})" onmouseover="this.style.background='#e8f0ff'" onmouseout="this.style.background=''">${v===0?'<span style="color:#ccc">—</span>':fmt(v)}${actHtml}</td>`;
+      } else {
+        cells+=`<td style="padding:3px 6px;border:1px solid #dde3f0;text-align:right;font-size:12px;font-weight:700;${neg};${bg}">${v===0?'<span style="color:#aaa">—</span>':fmt(v)}</td>`;
+      }
+    }
+    const annNeg=ann<0?'color:#c0392b':'';
+    const fw=item.bold?'font-weight:800':'font-weight:700';
+    const lcBg=isSub?'background:#f0f4ff':'background:#fff';
+    const lcPad=item.t==='i'?'padding-left:20px':'padding-left:10px';
+    tbody.innerHTML+=`<tr><td style="padding:4px 10px;${lcPad};border:1px solid #eee;font-size:12px;${lcBg};position:sticky;left:0;z-index:1;min-width:150px;${isSub?fw:''}">${item.l}</td>${cells}<td style="padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?fw:''};${annNeg};background:#f8f8f5">${ann===0?'<span style="color:#ccc">—</span>':fmt(ann)}</td></tr>`;
+  });
+}
+
+function fcEditCell(td, cid, year, section, key, month){
+  const cur=getForecastVal(cid,year,section,key,month);
+  td.innerHTML=`<input type="number" value="${cur}" style="width:90px;border:none;outline:2px solid #3a6bcc;background:#fff;text-align:right;font-size:12px;padding:1px 4px;border-radius:3px" onblur="fcSaveCell(this,'${cid}','${year}','${section}','${key}',${month})" onkeydown="if(event.key==='Enter')this.blur()" autofocus>`;
+  td.querySelector('input').focus();
+}
+
+function fcSaveCell(inp, cid, year, section, key, month){
+  setForecastCell(cid,year,section,key,month,parseInt(inp.value)||0);
+  renderForecastTable(cid,year,section==='pnl'?PNL_ITEMS:CASH_ITEMS,section,section+'FcBody');
+}
+
+// 이벤트 섹션 렌더링
+function renderForecastEvents(cid, year){
+  const fc=ensureForecast(cid,year);
+  const events=fc.events||[];
+  const div=document.getElementById('fcEventsWrap');
+  if(!div)return;
+  div.innerHTML=`
+    <div style="font-size:11px;color:#666;margin-bottom:12px;background:#f8f8f5;padding:10px 14px;border-radius:6px;line-height:1.9">
+      📌 이벤트를 추가하면 손익·현금흐름 추정에 <b>자동 반영</b>됩니다.<br>
+      · <b>보증금</b> → 현금 추정 [보증금회수] 해당 월 자동 추가<br>
+      · <b>권리금</b> → 손익 추정 [기타서비스] 해당 월 자동 추가<br>
+      · <b>처분 월부터 연말까지</b> → [지급임차료] · [건물관리비] 매월 자동 차감
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="background:#f0f0ec">
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center">지점</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center">처분시기</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:right">보증금</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:right">월세</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:right">관리비</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:right">권리금</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center">상태</th>
+        <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center">작업</th>
+      </tr></thead>
+      <tbody>${events.length?events.map((e,i)=>`<tr>
+        <td style="padding:6px 10px;border:1px solid #eee;font-weight:600;font-size:12px">${e.branch}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:center;font-size:12px">${year}년 ${e.month}월</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:right;font-size:12px">${fmt(e.deposit)}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:right;font-size:12px">${fmt(e.rent)}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:right;font-size:12px">${fmt(e.mgmtFee)}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:right;font-size:12px">${fmt(e.premium)}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:center">
+          <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;${e.done?'background:#d4edda;color:#155724':'background:#fff3cd;color:#856404'}">${e.done?'완료':'예정'}</span>
+        </td>
+        <td style="padding:6px 10px;border:1px solid #eee;text-align:center">
+          <button onclick="fcEventDone('${cid}','${year}',${i})" style="padding:2px 8px;font-size:10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;margin-right:4px">${e.done?'취소':'완료처리'}</button>
+          <button onclick="fcEventDelete('${cid}','${year}',${i})" style="padding:2px 8px;font-size:10px;border:1px solid #e88;border-radius:4px;background:#fff;color:#c0392b;cursor:pointer">삭제</button>
+        </td>
+      </tr>`).join(''):'<tr><td colspan="8" style="padding:16px;text-align:center;color:#aaa;font-size:12px">등록된 이벤트가 없습니다</td></tr>'}
+      </tbody>
+    </table>
+    <button onclick="fcAddEvent('${cid}','${year}')" style="padding:7px 16px;background:#3a6bcc;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer">＋ 이벤트 추가</button>
+  `;
+}
+
+function fcAddEvent(cid, year){
+  const branch=prompt('지점 번호 (예: #14)');
+  if(!branch)return;
+  const month=parseInt(prompt('처분 예상 월 (1~12)'));
+  if(!month||month<1||month>12){alert('올바른 월을 입력하세요');return;}
+  const deposit=parseInt(prompt('보증금 (원, 숫자만)')||'0')||0;
+  const rent=parseInt(prompt('월세 (원, 숫자만)')||'0')||0;
+  const mgmtFee=parseInt(prompt('관리비/월 (원, 숫자만)')||'0')||0;
+  const premium=parseInt(prompt('권리금 (원, 숫자만)')||'0')||0;
+  const fc=ensureForecast(cid,year);
+  const event={id:uid(),branch,month,deposit,rent,mgmtFee,premium,done:false};
+  fc.events.push(event);
+  applyEventToForecast(event);
+}
+
+function fcEventDone(cid, year, idx){
+  const fc=ensureForecast(cid,year);
+  if(fc.events[idx]) fc.events[idx].done=!fc.events[idx].done;
+  save();
+  renderForecastEvents(cid,year);
+}
+
+function fcEventDelete(cid, year, idx){
+  if(!confirm('이벤트를 삭제하시겠습니까?'))return;
+  const fc=ensureForecast(cid,year);
+  fc.events.splice(idx,1);
+  save();
+  renderForecastEvents(cid,year);
+}
+
+// 메인 렌더 함수
+function renderForecast(){
+  if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
+  const cid=curCo; const year=_fcYear;
+  ensureForecast(cid,year);
+
+  // 연간 요약 계산
+  const annMat=(items,section)=>{
+    const totals={};
+    items.filter(i=>i.t==='i').forEach(i=>{for(let m=1;m<=12;m++) totals[i.k]=(totals[i.k]||0)+getForecastVal(cid,year,section,i.k,m);});
+    return totals;
+  };
+  const pt=annMat(PNL_ITEMS,'pnl');
+  const totalRev=(['임대매출직영','세일즈위탁','뒤틱운영','플랫폼','관리서비스B2B','기타서비스']).reduce((s,k)=>s+(pt[k]||0),0);
+  const netProfit=totalRev-Object.keys(pt).filter(k=>k!=='잡이익'&&k!=='정부지원금'&&k!=='이자수익').reduce((s,k)=>s+(pt[k]||0),0)+(pt['잡이익']||0)+(pt['정부지원금']||0)+(pt['이자수익']||0);
+  const evCount=(ST.forecast[cid][year].events||[]).length;
+
+  document.getElementById('forecast-content').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#888">연도</span>
+      <select onchange="_fcYear=this.value;renderForecast()" style="padding:4px 10px;border:1px solid #ccc;border-radius:5px;font-size:12px">
+        ${[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=>`<option value="${y}" ${y==year?'selected':''}>${y}년</option>`).join('')}
+      </select>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <span style="font-size:12px;color:#888">실적 비교</span>
+        <label style="position:relative;width:36px;height:20px;display:inline-block">
+          <input type="checkbox" ${_fcCompare?'checked':''} onchange="_fcCompare=this.checked;renderForecast()" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:${_fcCompare?'#3a6bcc':'#ccc'};border-radius:20px;transition:.3s"></span>
+          <span style="position:absolute;width:14px;height:14px;left:${_fcCompare?'19':'3'}px;bottom:3px;background:#fff;border-radius:50%;transition:.3s"></span>
+        </label>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">지점 처분 이벤트</div><div style="font-size:18px;font-weight:700">${evCount}건</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">실적 비교</div><div style="font-size:14px;font-weight:600;color:${_fcCompare?'#3a6bcc':'#aaa'}">${_fcCompare?'ON — 비교 중':'OFF'}</div></div>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:12px">
+      <button onclick="_fcSection='pnl';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='pnl'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='pnl'?'#3a6bcc':'#fff'};color:${_fcSection==='pnl'?'#fff':'#666'};font-size:12px;cursor:pointer">손익 추정</button>
+      <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
+      <button onclick="_fcSection='events';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='events'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='events'?'#3a6bcc':'#fff'};color:${_fcSection==='events'?'#fff':'#666'};font-size:12px;cursor:pointer">지점 처분 이벤트</button>
+    </div>
+    <div id="fcTableWrap" style="${_fcSection==='events'?'display:none':''}">
+      <div style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);background:#fff">
+        <table style="border-collapse:collapse;width:100%;min-width:1100px">
+          <thead><tr style="background:#f0f0ec">
+            <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:left;min-width:150px;position:sticky;left:0;z-index:2">항목</th>
+            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap">${m}월</th>`).join('')}
+            <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap">연간합계</th>
+          </tr></thead>
+          <tbody id="${_fcSection}FcBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="fcEventsWrap" style="${_fcSection!=='events'?'display:none':''}"></div>
+  `;
+  if(_fcSection==='pnl') renderForecastTable(cid,year,PNL_ITEMS,'pnl','pnlFcBody');
+  else if(_fcSection==='cash') renderForecastTable(cid,year,CASH_ITEMS,'cash','cashFcBody');
+  else renderForecastEvents(cid,year);
+}
+
+// 억/만 단위 포맷
+function fmtB(n){
+  if(Math.abs(n)>=100000000) return (n/100000000).toFixed(1)+'억';
+  if(Math.abs(n)>=10000) return Math.round(n/10000)+'만';
+  return fmt(n);
+}
+
 </script>
 </body>
 </html>
