@@ -1913,7 +1913,7 @@ function selectCo(id){
     });
   }
 }
-function switchTab(t){
+async function switchTab(t){
   if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
   ['ledger','monthly','pl','cashflow','learn','import','forecast','settings'].forEach(id=>{
@@ -1923,6 +1923,17 @@ function switchTab(t){
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
+  // 리포트 탭(월별·손익·현금흐름) 전환 시 해당 연도 전체 데이터 자동 로드
+  if(['monthly','pl','cashflow'].includes(t) && currentUser && periodYear){
+    const yearMonths=(ST._metaMonths||[]).filter(m=>{const ym=m.match(/(\d{2})년/);return ym&&'20'+ym[1]===periodYear;});
+    const unloaded=yearMonths.filter(m=>!_loadedMonths.has(m));
+    if(unloaded.length){
+      setSyncStatus('데이터 로딩 중...');
+      await Promise.all(unloaded.map(m=>loadMonthFromFirestore(m)));
+      setSyncStatus('');
+      renderPeriodSelector();
+    }
+  }
   renderCurTab();
 }
 function renderCurTab(){
