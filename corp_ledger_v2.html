@@ -721,8 +721,9 @@ async function saveToFirestore(){
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
-    // dirty한 월만 저장 (월별 문서 1개)
+    // dirty한 월만 저장 — 로드된 월만 저장 (미로드 월을 빈 배열로 덮어쓰는 사고 방지)
     for(const month of _dirtyMonths){
+      if(!_loadedMonths.has(month)) continue;
       const monthRows=ST.rows.filter(r=>r.month===month);
       await db.doc(`users/${uid}/months/${month}`).set({rows: monthRows});
     }
@@ -877,16 +878,21 @@ async function loadFromFirestore(preloadedSnap){
 // 특정 월 데이터를 Firestore에서 추가 로드
 async function loadMonthFromFirestore(month){
   if(!currentUser||_loadedMonths.has(month)) return;
+  _loadedMonths.add(month); // 선점: 동시 호출로 인한 중복 로드 방지
   const uid=getUid();
   setSyncStatus(`${month} 로드 중...`);
-  const snap=await db.doc(`users/${uid}/months/${month}`).get();
-  if(snap.exists){
-    const existingIds=new Set(ST.rows.map(r=>r.id));
-    (snap.data().rows||[]).forEach(row=>{
-      if(!existingIds.has(row.id)) ST.rows.push(row);
-    });
+  try{
+    const snap=await db.doc(`users/${uid}/months/${month}`).get();
+    if(snap.exists){
+      const existingIds=new Set(ST.rows.map(r=>r.id));
+      (snap.data().rows||[]).forEach(row=>{
+        if(!existingIds.has(row.id)) ST.rows.push(row);
+      });
+    }
+  }catch(e){
+    _loadedMonths.delete(month); // 실패 시 선점 해제 (재시도 가능)
+    console.warn('월 로드 실패:',month,e);
   }
-  _loadedMonths.add(month);
   setSyncStatus('');
 }
 
@@ -1929,7 +1935,7 @@ async function switchTab(t){
     const unloaded=yearMonths.filter(m=>!_loadedMonths.has(m));
     if(unloaded.length){
       setSyncStatus('데이터 로딩 중...');
-      await Promise.all(unloaded.map(m=>loadMonthFromFirestore(m)));
+      for(const m of unloaded) await loadMonthFromFirestore(m);
       setSyncStatus('');
       renderPeriodSelector();
     }
