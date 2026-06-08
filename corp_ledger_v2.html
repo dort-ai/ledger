@@ -1328,12 +1328,13 @@ function startEdit(ri, ci, clearVal=false){
   if(isLocked(ci)&&!isSplitChildNum){openEditModal(curRow.id);return;}
 
   commitEdit();
-  editActive=true; editR=ri; editC=ci;
   selAnchor={r:ri,c:ci}; selFocus={r:ri,c:ci};
 
   const r=_rows[ri], col=DC[ci];
   const td=getTd(ri,ci);
   if(!td)return;
+
+  editActive=true; editR=ri; editC=ci;
 
   const isNum=col.k==='income'||col.k==='expense';
   const curVal=clearVal?'':(isNum?fmt(num(r[col.k])):r[col.k]||'');
