@@ -1143,10 +1143,7 @@ function toggleAllMonths(all){
 }
 
 function onYearChange(year){
-  if(curTab==='ledger'){
-    periodYear=year; periodMonth=''; selectedMonths=new Set();
-    renderPeriodSelector(); renderCurTab();
-  } else { setPeriodYear(year); }
+  setPeriodYear(year);
 }
 async function setPeriodYear(year){
   periodYear=year;
