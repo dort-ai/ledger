@@ -1416,8 +1416,6 @@ function commitEdit(silent=false){
     if(ck==='income'&&num(r[ck])>0)color='color:#1a7a4a';
     if(ck==='expense'&&num(r[ck])>0)color='color:#c0392b';
     editTd.innerHTML=`<div class="cv${isNum2?' nr':''}" style="${color}">${disp}</div>`;
-    editTd.addEventListener('mousedown',e=>onTdDown(e,editR,editC));
-    editTd.addEventListener('mousemove',e=>onTdMove(e,editR,editC));
     updateSummary();
   }
   editActive=false; editInp=null; editTd=null;
