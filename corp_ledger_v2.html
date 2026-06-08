@@ -849,6 +849,18 @@ async function loadFromFirestore(preloadedSnap){
     ST.intercompanyCats=m.intercompanyCats||[];
     ST._metaMonths =(m.months     ||[]).sort();
 
+    // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
+    try{
+      const colSnap=await db.collection(`users/${uid}/months`).get();
+      const scanned=colSnap.docs.map(d=>d.id).filter(id=>/\d{2}년 \d{2}월/.test(id)).sort();
+      const merged=[...new Set([...ST._metaMonths,...scanned])].sort();
+      if(merged.length>ST._metaMonths.length){
+        ST._metaMonths=merged;
+        await db.doc(`users/${uid}`).update({months:merged});
+        console.log('_metaMonths 복구:', merged);
+      }
+    }catch(e){ console.warn('metaMonths 스캔 실패',e); }
+
     // 가장 최근 월 로드 — 최대 3개월 병렬 조회 후 가장 최근 데이터 사용
     _loadedMonths.clear();
     ST.rows=[];
