@@ -1174,8 +1174,8 @@ function renderLedger(){
     {l:'순이익',v:fmt(totI-totE),c:totI-totE>=0?'g':'r'},{l:'건수',v:_rows.length+'건',c:''},
   ].map(x=>`<div class="sc"><div class="sc-l">${x.l}</div><div class="sc-v ${x.c}">${x.v}</div></div>`).join('');
 
-  // 중분류 미작성 배지 (기간 필터 적용된 행 기준, 부모·분할행 제외)
-  const uncatCnt=_rows.filter(r=>!r.cat2&&!r.splitGroup&&(num(r.income)||num(r.expense))).length;
+  // 중분류 미작성 배지 (기간 필터 적용된 행 기준)
+  const uncatCnt=_rows.filter(r=>!r.cat2&&(num(r.income)||num(r.expense))).length;
   const btnU=document.getElementById('btn-uncat');
   if(btnU){
     if(uncatCnt>0){btnU.style.display='';btnU.textContent=`⚠ 중분류 미작성 ${uncatCnt}건`;}
