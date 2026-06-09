@@ -1444,8 +1444,6 @@ function cancelEdit(){
     if(col.k==='income'&&num(r[col.k])>0)color='color:#1a7a4a';
     if(col.k==='expense'&&num(r[col.k])>0)color='color:#c0392b';
     editTd.innerHTML=`<div class="cv${isNum?' nr':''}" style="${color}">${disp}</div>`;
-    editTd.addEventListener('mousedown',e=>onTdDown(e,editR,editC));
-    editTd.addEventListener('mousemove',e=>onTdMove(e,editR,editC));
   }
   editActive=false; editInp=null; editTd=null;
   updateHL();
