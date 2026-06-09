@@ -1022,10 +1022,11 @@ const selRange = () => ({
   r1:Math.min(selAnchor.r,selFocus.r), r2:Math.max(selAnchor.r,selFocus.r),
   c1:Math.min(selAnchor.c,selFocus.c), c2:Math.max(selAnchor.c,selFocus.c),
 });
+const _isMetaKey=k=>k==='_cat4'||k==='_order';
 const getRows = cid => cid==='__all__' ? ST.rows : ST.rows.filter(r=>r.companyId===cid);
 const getReportRows = cid => getRows(cid); // 부모·자식행 모두 집계
-const cat1FromCat2=(cid,c2)=>{const ac=getAc(cid);for(const[c1,sub] of Object.entries(ac)){if(c1==='_cat4')continue;if(typeof sub==='object'&&!Array.isArray(sub)&&c2 in sub)return c1;}return'';};
-const cat2FromCat3=(cid,c1,c3)=>{const ac=getAc(cid);const sub=ac[c1]||{};for(const[c2,arr] of Object.entries(sub)){if(Array.isArray(arr)&&arr.includes(c3))return c2;}return'';};
+const cat1FromCat2=(cid,c2)=>{const ac=getAc(cid);for(const[c1,sub] of Object.entries(ac)){if(_isMetaKey(c1))continue;if(typeof sub==='object'&&!Array.isArray(sub)&&c2 in sub)return c1;}return'';};
+const cat2FromCat3=(cid,c1,c3)=>{const ac=getAc(cid);const sub=ac[c1]||{};for(const[c2,arr] of Object.entries(sub)){if(_isMetaKey(c2))continue;if(Array.isArray(arr)&&arr.includes(c3))return c2;}return'';};
 
 function pushUndo(){
   undoStack.push(JSON.stringify(ST.rows));
@@ -1455,7 +1456,6 @@ function startEdit(ri, ci, clearVal=false){
   updateHL();
 }
 
-const _isMetaKey=k=>k==='_cat4'||k==='_order';
 function getComboOpts(combo,r,cid){
   const ac=getAc(cid),wl=getWl(cid),c4=getC4(cid),k1s=Object.keys(ac).filter(k=>!_isMetaKey(k));
   if(combo==='cat1')return k1s;
