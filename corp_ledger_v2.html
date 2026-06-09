@@ -853,7 +853,7 @@ async function loadFromFirestore(preloadedSnap){
     // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
     try{
       const colSnap=await db.collection(`users/${uid}/months`).get();
-      const scanned=colSnap.docs.map(d=>d.id).filter(id=>/\d{2}년 \d{2}월/.test(id)).sort();
+      const scanned=colSnap.docs.map(d=>d.id).filter(id=>{const m=id.match(/\d{2}년 (\d{2})월/);return m&&parseInt(m[1])>=1&&parseInt(m[1])<=12;}).sort();
       const merged=[...new Set([...ST._metaMonths,...scanned])].sort();
       if(merged.length>ST._metaMonths.length){
         ST._metaMonths=merged;
