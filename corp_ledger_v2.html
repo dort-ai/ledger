@@ -1141,7 +1141,11 @@ function renderPeriodSelector(){
   }
 }
 
-function setPeriodMonth(m){ periodMonth=m; renderCurTab(); }
+async function setPeriodMonth(m){
+  periodMonth=m;
+  if(currentUser && m && !_loadedMonths.has(m)) await loadMonthFromFirestore(m);
+  renderCurTab();
+}
 
 function toggleMonth(m){
   if(selectedMonths.has(m)) selectedMonths.delete(m);
@@ -2017,11 +2021,17 @@ function selectCo(id){
   ['tab-settings-btn','tab-import-btn','tab-learn-btn','btn-add','btn-ai','btn-edit-co','add-row-footer'].forEach(bid=>{const el=document.getElementById(bid);if(el)el.style.display=isAll?'none':'';});
   if(curTab==='settings'&&isAll)switchTab('ledger'); else renderCurTab();
   // 해당 법인 로드된 데이터 없으면 현재 연도 전체 비동기 로드 후 재렌더
-  if(currentUser&&!getRows(id).length){
-    loadYearFromFirestore(periodYear).then(()=>{
-      const rms=[...new Set(getRows(id).map(r=>r.month).filter(Boolean))].sort();
-      if(rms.length){periodMonth=rms[rms.length-1];renderCurTab();}
-    });
+  // 현재 연도 전체를 백그라운드 로드 (일부만 로드된 경우도 포함)
+  if(currentUser){
+    const yearMonths=(ST._metaMonths||[]).filter(m=>{const ym=m.match(/(\d{2})년/);return ym&&'20'+ym[1]===periodYear;});
+    const hasUnloaded=yearMonths.some(m=>!_loadedMonths.has(m));
+    if(hasUnloaded){
+      loadYearFromFirestore(periodYear).then(()=>{
+        const rms=[...new Set(getRows(id).map(r=>r.month).filter(Boolean))].sort();
+        if(rms.length&&!periodMonth){periodMonth=rms[rms.length-1];}
+        renderCurTab();
+      });
+    }
   }
 }
 async function switchTab(t){
