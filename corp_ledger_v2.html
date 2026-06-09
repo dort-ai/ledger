@@ -1718,7 +1718,7 @@ function moveDrop(d){
 }
 function pickDrop(i){hideDrop();if(dropCb)dropCb(dropOpts[i]);}
 function hideDrop(){document.getElementById('fdrop').classList.remove('show');dropFocusIdx=-1;}
-function showCfTip(e,text){const t=document.getElementById('cf-tooltip');t.textContent=text;t.style.display='block';t.style.left=Math.min(e.clientX+12,window.innerWidth-t.offsetWidth-8)+'px';t.style.top=(e.clientY+16)+'px';}
+function showCfTip(e,text){const t=document.getElementById('cf-tooltip');t.textContent=text;t.style.left=(e.clientX+14)+'px';t.style.top=(e.clientY+18)+'px';t.style.display='block';requestAnimationFrame(()=>{const ow=t.offsetWidth;if(e.clientX+14+ow>window.innerWidth)t.style.left=Math.max(4,e.clientX-ow-4)+'px';});}
 function hideCfTip(){document.getElementById('cf-tooltip').style.display='none';}
 document.addEventListener('mousedown',e=>{
   if(!e.target.closest('#fdrop')&&!e.target.classList.contains('cell-input'))hideDrop();
