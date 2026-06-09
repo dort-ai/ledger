@@ -1556,7 +1556,17 @@ function editKD(e){
 // ══════════════════════════════════════════════
 // 그리드 키 처리 (비편집)
 // ══════════════════════════════════════════════
-document.getElementById('tbl-scroll').addEventListener('keydown', gridKD);
+// gridKD를 document 레벨로 올려서 포커스 위치와 무관하게 동작
+document.addEventListener('keydown', (e)=>{
+  // 다른 input/textarea가 포커스된 경우 무시 (editInp 제외)
+  const ae=document.activeElement;
+  if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&ae!==editInp) return;
+  // 모달이 열려 있으면 무시
+  if(document.querySelector('.overlay.show')) return;
+  // 거래내역 탭이 아니면 무시
+  if(curTab!=='ledger') return;
+  gridKD(e);
+});
 document.getElementById('tbl-scroll').addEventListener('scroll', ()=>{
   const el=document.getElementById('tbl-scroll');
   if(el.scrollTop+el.clientHeight>=el.scrollHeight-200){
@@ -1575,9 +1585,6 @@ document.addEventListener('paste', (e) => {
 
 function gridKD(e){
   if(editActive)return; // 편집 중엔 editKD 담당
-  // 필터 input에 포커스 있으면 그리드 단축키 무시
-  const _active=document.activeElement;
-  if(_active&&(_active.tagName==='INPUT'||_active.tagName==='TEXTAREA')&&_active!==editInp)return;
   const ctrl=e.ctrlKey||e.metaKey;
   // Ctrl 단축키
   if(ctrl){
