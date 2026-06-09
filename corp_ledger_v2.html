@@ -666,7 +666,7 @@ let clipBoard=null; // {rows:string[][], colKeys:string[], cut:bool}
 let undoStack=[];
 let isDragging=false;
 let _rows=[]; // 현재 필터된 행 캐시
-let _renderLimit=500; // 현재 DOM에 렌더된 행 수
+let _renderLimit=200; // 현재 DOM에 렌더된 행 수 (초기 200건, 스크롤 시 200건씩 추가)
 let filters={}, sortKey='', sortAsc=true;
 let periodYear=''; let periodMonth=''; let selectedMonths=new Set();
 let prevHL=new Set(); // 이전 하이라이트 td 캐시
@@ -1227,7 +1227,7 @@ function renderLedger(){
   }).join('')}</tr>`;
 
   // 바디
-  _renderLimit=500;
+  _renderLimit=200;
   const frag=document.createDocumentFragment();
   if(!_rows.length){
     const tr=document.createElement('tr');
@@ -1305,7 +1305,7 @@ function _renderMoreRow(){
   const td=document.createElement('td');
   td.colSpan=COLS.length;
   td.style.cssText='text-align:center;padding:10px;color:#1976d2;font-size:12px;cursor:pointer;background:#f0f7ff;border-top:2px solid #bbdefb;';
-  td.textContent=`▼ ${_renderLimit.toLocaleString()}/${_rows.length.toLocaleString()}건 표시 중 — 클릭하거나 스크롤하면 ${Math.min(remain,500).toLocaleString()}건 더 표시`;
+  td.textContent=`▼ ${_renderLimit.toLocaleString()}/${_rows.length.toLocaleString()}건 표시 중 — 클릭하거나 스크롤하면 ${Math.min(remain,200).toLocaleString()}건 더 표시`;
   td.onclick=()=>_loadMoreRows();
   tr.appendChild(td);
   tbody.appendChild(tr);
@@ -1314,7 +1314,7 @@ function _renderMoreRow(){
 function _loadMoreRows(){
   if(_renderLimit>=_rows.length)return;
   const start=_renderLimit;
-  _renderLimit=Math.min(_renderLimit+500,_rows.length);
+  _renderLimit=Math.min(_renderLimit+200,_rows.length);
   const tbody=document.getElementById('t-body');
   const old=document.getElementById('render-more-row');
   if(old)old.remove();
