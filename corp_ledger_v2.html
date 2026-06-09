@@ -2142,6 +2142,7 @@ function plDrop(e){
 
 function renderPL(){
   let rows=getReportRows(curCo);
+  if(periodYear) rows=rows.filter(r=>{const ym=r.month&&r.month.match(/(\d{2})년/);return ym&&'20'+ym[1]===periodYear;});
   if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
   if(!months.length){document.getElementById('pl-content').innerHTML='<p style="color:#aaa;font-size:12px">데이터가 없습니다.</p>';return;}
@@ -2275,6 +2276,7 @@ function renderPL(){
 function renderCashflow(){
   _cfDrillItems=[];
   let rows=getRows(curCo);
+  if(periodYear) rows=rows.filter(r=>{const ym=r.month&&r.month.match(/(\d{2})년/);return ym&&'20'+ym[1]===periodYear;});
   if(selectedMonths.size>0) rows=rows.filter(r=>selectedMonths.has(r.month));
   rows=rows.filter(r=>r.cat2!=='계좌간'&&r.cat1!=='계좌간');
   const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
