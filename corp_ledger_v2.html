@@ -2835,9 +2835,20 @@ function makeTxFingerprint(row){
 function pf(file,type){
   const reader=new FileReader();
   reader.onload=function(e){
-    const wb=XLSX.read(e.target.result,{type:'binary'});
+    const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
     const ws=wb.Sheets[wb.SheetNames[0]];
-    const data=XLSX.utils.sheet_to_json(ws,{defval:''});
+    const rawData=XLSX.utils.sheet_to_json(ws,{defval:''});
+    // Excel 날짜 일련번호(Date 객체)를 문자열로 변환
+    const data=rawData.map(r=>{
+      const out={};
+      Object.entries(r).forEach(([k,v])=>{
+        if(v instanceof Date){
+          const pad=n=>String(n).padStart(2,'0');
+          out[k]=`${v.getFullYear()}-${pad(v.getMonth()+1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
+        } else { out[k]=v; }
+      });
+      return out;
+    });
     if(!data.length){alert('데이터 없음');return;}
     if(type==='learn'){
       if(!ST.learnUploads)ST.learnUploads=[];
