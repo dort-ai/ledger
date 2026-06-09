@@ -1455,13 +1455,14 @@ function startEdit(ri, ci, clearVal=false){
   updateHL();
 }
 
+const _isMetaKey=k=>k==='_cat4'||k==='_order';
 function getComboOpts(combo,r,cid){
-  const ac=getAc(cid),wl=getWl(cid),c4=getC4(cid),k1s=Object.keys(ac).filter(k=>k!=='_cat4');
+  const ac=getAc(cid),wl=getWl(cid),c4=getC4(cid),k1s=Object.keys(ac).filter(k=>!_isMetaKey(k));
   if(combo==='cat1')return k1s;
   if(combo==='cat2'){
-    if(r.cat1) return Object.keys(ac[r.cat1]||{}).filter(k=>k!=='_cat4');
+    if(r.cat1) return Object.keys(ac[r.cat1]||{}).filter(k=>!_isMetaKey(k));
     // cat1 미설정 시 전체 중분류 표시
-    return k1s.flatMap(k1=>Object.keys(ac[k1]||{}).filter(k=>k!=='_cat4'));
+    return k1s.flatMap(k1=>Object.keys(ac[k1]||{}).filter(k=>!_isMetaKey(k)));
   }
   if(combo==='cat3'){
     if(r.cat1&&r.cat2) return ac[r.cat1]?.[r.cat2]||[];
@@ -1681,7 +1682,9 @@ function pasteRange(){
     clipBoard.colKeys.forEach((k,ci)=>{
       const colDef=DC.find(d=>d.k===k);
       if(!colDef||colDef.locked||colDef.t==='ro')return;
-      row[k]=rowData[ci]||'';
+      const v=rowData[ci]||'';
+      if(_isMetaKey(v))return; // _order/_cat4 값이 잘못 복사된 경우 무시
+      row[k]=v;
       if(k==='cat2'&&row[k]){const c1v=cat1FromCat2(row.companyId,row[k]);if(c1v)row.cat1=c1v;}
       if(k==='cat3'&&row[k]&&row.cat1){const c2v=cat2FromCat3(row.companyId,row.cat1,row[k]);if(c2v)row.cat2=c2v;}
     });
