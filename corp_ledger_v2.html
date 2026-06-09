@@ -2581,7 +2581,7 @@ function resolveCardPurpose(purpose,cid){
 function openBulkEdit(){
   const ac=getAc(curCo),c4=getC4(curCo);
   // 중분류 datalist
-  const cat2s=[...new Set(Object.entries(ac).filter(([k])=>k!=='_cat4').flatMap(([,sub])=>Object.keys(sub).filter(k=>k!=='_cat4')))];
+  const cat2s=[...new Set(Object.entries(ac).filter(([k])=>!_isMetaKey(k)).flatMap(([,sub])=>Object.keys(sub).filter(k=>!_isMetaKey(k))))];
   document.getElementById('bulk-cat2-list').innerHTML=cat2s.map(v=>`<option value="${v}">`).join('');
   // 소분류 datalist
   const cat3s=[...new Set(Object.values(ac).filter(v=>typeof v==='object'&&!Array.isArray(v)).flatMap(sub=>Object.values(sub).filter(Array.isArray).flat()))];
@@ -2662,6 +2662,9 @@ function applyBulkEdit(){
   save();renderLedger();
   renderBulkList();
   document.getElementById('bulk-status').textContent=`✅ ${cnt}건 적용됨`;
+  // 모달 닫기 및 그리드 포커스 복원
+  closeOv('bulk-ov');
+  document.getElementById('tbl-scroll')?.focus();
 }
 
 // ══════════════════════════════════════════════
