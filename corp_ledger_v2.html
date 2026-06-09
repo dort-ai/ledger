@@ -189,6 +189,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 
 <div id="fdrop"></div>
 <div id="msdrop"></div>
+<div id="cf-tooltip" style="display:none;position:fixed;background:#333;color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;pointer-events:none;z-index:9999;max-width:320px;white-space:pre-wrap;line-height:1.4"></div>
 
 <div class="main">
   <div class="ph2">
@@ -1717,6 +1718,8 @@ function moveDrop(d){
 }
 function pickDrop(i){hideDrop();if(dropCb)dropCb(dropOpts[i]);}
 function hideDrop(){document.getElementById('fdrop').classList.remove('show');dropFocusIdx=-1;}
+function showCfTip(e,text){const t=document.getElementById('cf-tooltip');t.textContent=text;t.style.display='block';t.style.left=Math.min(e.clientX+12,window.innerWidth-t.offsetWidth-8)+'px';t.style.top=(e.clientY+16)+'px';}
+function hideCfTip(){document.getElementById('cf-tooltip').style.display='none';}
 document.addEventListener('mousedown',e=>{
   if(!e.target.closest('#fdrop')&&!e.target.classList.contains('cell-input'))hideDrop();
   if(!e.target.closest('#msdrop')&&!e.target.closest('.ms-wrap'))hideMsDrop();
@@ -2307,7 +2310,7 @@ function renderCashflow(){
   const plNetCat1s=new Set(cfMap.flatMap(s=>s.items.filter(it=>it.type==='pl_net').flatMap(it=>it.cat1s)));
 
   const thS='background:#f8f8f7;padding:5px 8px;font-size:10px;text-align:right;white-space:nowrap;border:1px solid #ddd;position:sticky;top:0;z-index:1';
-  const tL=(t,indent,bg,bold)=>`<td style="padding:0;background:${bg||'transparent'};border:1px solid #eee;"><div title="${t}" style="padding:4px 8px;font-size:11px;font-weight:${bold?700:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;${indent?'padding-left:24px;':''}">${t}</div></td>`;
+  const tL=(t,indent,bg,bold)=>`<td style="padding:0;background:${bg||'transparent'};border:1px solid #eee;"><div onmouseenter="showCfTip(event,'${t.replace(/'/g,'&#39;')}')" onmouseleave="hideCfTip()" style="padding:4px 8px;font-size:11px;font-weight:${bold?700:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;${indent?'padding-left:24px;':''}">${t}</div></td>`;
 
   // 숫자 셀: 드릴다운 가능하면 클릭 인덱스 저장, 항상 0 표시
   const tN=(v,bold,label,keys,cat1s,m)=>{
