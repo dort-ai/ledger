@@ -666,6 +666,7 @@ let clipBoard=null; // {rows:string[][], colKeys:string[], cut:bool}
 let undoStack=[];
 let isDragging=false;
 let _rows=[]; // 현재 필터된 행 캐시
+let _renderLimit=500; // 현재 DOM에 렌더된 행 수
 let filters={}, sortKey='', sortAsc=true;
 let periodYear=''; let periodMonth=''; let selectedMonths=new Set();
 let prevHL=new Set(); // 이전 하이라이트 td 캐시
@@ -1226,6 +1227,7 @@ function renderLedger(){
   }).join('')}</tr>`;
 
   // 바디
+  _renderLimit=500;
   const frag=document.createDocumentFragment();
   if(!_rows.length){
     const tr=document.createElement('tr');
@@ -1233,7 +1235,7 @@ function renderLedger(){
     td.style.cssText='text-align:center;padding:20px;color:#aaa;font-size:12px';
     td.textContent='거래 내역이 없습니다';tr.appendChild(td);frag.appendChild(tr);
   }else{
-    _rows.forEach((r,ri)=>{
+    _rows.slice(0,_renderLimit).forEach((r,ri)=>{
       const isChild=!!r.splitParent;
       const tr=document.createElement('tr');
       tr.dataset.id=r.id;
@@ -1285,8 +1287,86 @@ function renderLedger(){
   prevHL.clear();
   const tbody=document.getElementById('t-body');
   tbody.innerHTML=''; tbody.appendChild(frag);
+  // 더 보기 행 표시
+  _renderMoreRow();
   // anchor가 범위 밖이면 리셋
   if(selAnchor.r>=_rows.length) selAnchor=selFocus={r:0,c:0};
+  updateHL();
+}
+
+function _renderMoreRow(){
+  const tbody=document.getElementById('t-body');
+  const old=document.getElementById('render-more-row');
+  if(old)old.remove();
+  if(_renderLimit>=_rows.length)return;
+  const remain=_rows.length-_renderLimit;
+  const tr=document.createElement('tr');
+  tr.id='render-more-row';
+  const td=document.createElement('td');
+  td.colSpan=COLS.length;
+  td.style.cssText='text-align:center;padding:10px;color:#1976d2;font-size:12px;cursor:pointer;background:#f0f7ff;border-top:2px solid #bbdefb;';
+  td.textContent=`▼ ${_renderLimit.toLocaleString()}/${_rows.length.toLocaleString()}건 표시 중 — 클릭하거나 스크롤하면 ${Math.min(remain,500).toLocaleString()}건 더 표시`;
+  td.onclick=()=>_loadMoreRows();
+  tr.appendChild(td);
+  tbody.appendChild(tr);
+}
+
+function _loadMoreRows(){
+  if(_renderLimit>=_rows.length)return;
+  const start=_renderLimit;
+  _renderLimit=Math.min(_renderLimit+500,_rows.length);
+  const tbody=document.getElementById('t-body');
+  const old=document.getElementById('render-more-row');
+  if(old)old.remove();
+  const isAll=curCo==='__all__';
+  const frag=document.createDocumentFragment();
+  _rows.slice(start,_renderLimit).forEach((r,i)=>{
+    const ri=start+i;
+    const isChild=!!r.splitParent;
+    const tr=document.createElement('tr');
+    tr.dataset.id=r.id;
+    if(isChild)tr.style.background='#fffdf5';
+    COLS.forEach((col,colIdx)=>{
+      const td=document.createElement('td');
+      td.style.width=col.w+'px';
+      if(col.t==='chk'){
+        td.innerHTML=`<div style="text-align:center;padding:2px"><input type="checkbox" class="row-chk" data-id="${r.id}" style="width:auto" onchange="updSelInfo()"></div>`;
+      } else if(col.t==='act'){
+        if(!isAll){
+          td.style.cssText=`padding:2px 3px;width:${col.w}px`;
+          let splitNetHtml='';
+          if(!isChild&&r.splitGroup){
+            const children=ST.rows.filter(cr=>cr.splitParent===r.id);
+            if(children.length){
+              const cI=children.reduce((s,cr)=>s+num(cr.income),0);
+              const cE=children.reduce((s,cr)=>s+num(cr.expense),0);
+              let lbl=`분할 ${children.length}건`;
+              if(cI)lbl+=` | 입금 ${fmt(cI)}`;
+              if(cE)lbl+=` | 지급 ${fmt(cE)}`;
+              splitNetHtml=`<div class="split-net" data-pid="${r.id}" style="font-size:9px;color:#888;margin-top:1px">${lbl}</div>`;
+            }
+          }
+          td.innerHTML=`<button class="btn-sm" onclick="openEditModal('${r.id}')">수정</button> <button class="btn-sm btn-d" onclick="delRow('${r.id}')">삭제</button>${!isChild?` <button class="btn-sm" onclick="addSplitRow('${r.id}')" title="분할">✂</button>`:''}${splitNetHtml}`;
+        }
+      } else {
+        const ci=DC.findIndex(d=>d.k===col.k);
+        const v=r[col.k]||'';
+        const isNum=col.k==='income'||col.k==='expense';
+        let disp=isNum?fmt(num(v)):v;
+        let color='';
+        if(col.k==='income'&&num(v)>0) color='color:#1a7a4a';
+        if(col.k==='expense'&&num(v)>0) color='color:#c0392b';
+        if(isChild&&colIdx===1) disp='  └ '+disp;
+        td.innerHTML=`<div class="cv${isNum?' nr':''}" style="${color}">${disp}</div>`;
+        td.addEventListener('mousedown', e=>onTdDown(e,ri,ci));
+        td.addEventListener('dblclick', e=>{e.preventDefault();startEdit(ri,ci,false);});
+      }
+      tr.appendChild(td);
+    });
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+  _renderMoreRow();
   updateHL();
 }
 
@@ -1476,6 +1556,12 @@ function editKD(e){
 // 그리드 키 처리 (비편집)
 // ══════════════════════════════════════════════
 document.getElementById('tbl-scroll').addEventListener('keydown', gridKD);
+document.getElementById('tbl-scroll').addEventListener('scroll', ()=>{
+  const el=document.getElementById('tbl-scroll');
+  if(el.scrollTop+el.clientHeight>=el.scrollHeight-200){
+    _loadMoreRows();
+  }
+}, {passive:true});
 // paste는 document 레벨에서 처리 (tbl-scroll 포커스 여부 무관)
 document.addEventListener('paste', (e) => {
   if(editActive) return;
