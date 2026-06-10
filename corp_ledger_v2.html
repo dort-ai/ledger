@@ -2987,7 +2987,9 @@ function showPreview(type,data){
       if(r._isDup)dupCount++;
     });
   }
-  const dupInfo=dupCount>0?`<span id="dup-info-msg" style="color:#c0392b;font-size:11px;margin-left:8px">⚠ 중복 ${dupCount}건 감지</span>`:'';
+  // ledger 타입은 중복이 실제 중복이 아닐 수 있으므로 경고만 (노란색), bank는 빨간색
+  const isLedger=type==='ledger';
+  const dupInfo=dupCount>0?`<span id="dup-info-msg" style="color:${isLedger?'#b45309':'#c0392b'};font-size:11px;margin-left:8px">${isLedger?'⚠ 동일 내역':'⚠ 중복'} ${dupCount}건 감지${isLedger?' (동일 날짜·금액·내용 — 실제 중복이 아닐 수 있음)':''}</span>`:'';
   document.getElementById('prev-count').textContent=`(${data.length}건)`;
   const oldDupMsg=document.getElementById('dup-info-msg');
   if(oldDupMsg)oldDupMsg.remove();
@@ -3005,15 +3007,13 @@ function confirmImport(){
   backupData(true);
   pushUndo();
   if(type==='ledger'){
-    const existingFps=new Set(ST.rows.map(makeTxFingerprint));
-    let dupCount=0;
     data.forEach(r=>{
       const date=String(r['거래일시']||'').trim(),desc=String(r['기재내용']||'').trim();
       if(!date&&!desc)return;
       const income=num(r['입금(원)']||r['입금']||0),expense=num(r['지급(원)']||r['지급']||0);
       const m=date.match(/(\d{2,4})[.\-\/](\d{2})/);
       const month=m?(m[1].length===4?m[1].slice(2):m[1])+'년 '+m[2]+'월':'';
-      const newRow={id:uid(),companyId:cid,
+      ST.rows.push({id:uid(),companyId:cid,
         date,month,desc,
         income:String(income||0),expense:String(expense||0),
         cat1:String(r['대분류']||'').trim(),
@@ -3022,15 +3022,11 @@ function confirmImport(){
         cat4:String(r['소속']||'').trim(),
         note:String(r['비고']||'').trim(),
         wallet:String(r['계좌']||'').trim()
-      };
-      const fp=makeTxFingerprint(newRow);
-      if(existingFps.has(fp)){dupCount++;return;}
-      existingFps.add(fp);
-      ST.rows.push(newRow);
+      });
       count++;
     });
     if(btn){btn.disabled=false;btn.textContent='가져오기 확정';}
-    alert(`${count}건 완료${dupCount?` (중복 ${dupCount}건 제외)`:''}`);
+    alert(`${count}건 완료`);
   } else if(type==='bank'){
     const existingFps=new Set(ST.rows.map(makeTxFingerprint));
     let dupCount=0;
