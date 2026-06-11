@@ -3664,6 +3664,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       const act=actFn(it,month);
       if(act!==null) return act;
     }
+    if(cid==='__all__')
+      return ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
     return getForecastVal(cid,year,section,k,month);
   }
 
