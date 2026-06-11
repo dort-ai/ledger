@@ -3823,19 +3823,7 @@ function fcCommitEdit(){
 }
 
 function fcRefreshTable(){
-  if(_fcSec==='pnl'){
-    const actFn=(item,month)=>{
-      if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(_fcCid,_fcYear2,item.cat1,item.cat2,month);
-      return null;
-    };
-    renderForecastTable(_fcCid,_fcYear2,buildPnlItems(_fcCid),'pnl','pnlFcBody',actFn);
-  } else if(_fcSec==='cash'){
-    const actFn=(item,month)=>{
-      if(item._cfItem) return getCfItemActual(_fcCid,_fcYear2,item._cfItem,month);
-      return null;
-    };
-    renderForecastTable(_fcCid,_fcYear2,buildCashFcItems(_fcCid),'cash','cashFcBody',actFn);
-  }
+  renderForecast();
 }
 
 function fcEditKD(e){
