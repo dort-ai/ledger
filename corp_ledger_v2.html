@@ -3612,6 +3612,7 @@ function buildCashFcItems(cid){
     allKeys.push(...secKeys);
   }
   items.push({t:'s',l:'✦ 현금의 순증감',ks:allKeys,bold:1});
+  items.push({t:'bal_end',l:'✦ 기말잔액',ks:allKeys,bold:1,bg:'#eef3fc'});
   return items;
 }
 
@@ -3699,6 +3700,51 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       tr.style.cssText=`background:${item.bg||'#e8edf8'}`;
       tr.innerHTML=`<td colspan="14" style="padding:5px 10px;font-weight:700;color:#2a4a8a;font-size:11px;border:1px solid #dde3f0">${item.l}</td>`;
       tbody.appendChild(tr);
+      return;
+    }
+    // 기말잔액 누적 행 특수 처리
+    if(item.t==='bal_end'){
+      const base=ST.cfBaseBalance?.[cid]?.[year]??null;
+      const tr=document.createElement('tr');
+      const lc=document.createElement('td');
+      lc.style.cssText=`padding:4px 10px;border:1px solid #c8d8f8;font-size:12px;font-weight:800;background:#eef3fc;position:sticky;left:0;z-index:1;min-width:150px`;
+      lc.textContent=item.l;
+      tr.appendChild(lc);
+      let running=base;
+      let lastVal=null;
+      for(let m=1;m<=12;m++){
+        const net=item.ks.reduce((s,k)=>s+effVal(k,m),0);
+        if(running!==null) running+=net;
+        const td=document.createElement('td');
+        td.style.cssText=`padding:3px 8px;border:1px solid #c8d8f8;text-align:right;font-size:12px;font-weight:700;background:#eef3fc`;
+        if(running===null){
+          td.innerHTML=`<span style="color:#aaa">-</span>`;
+        } else {
+          lastVal=running;
+          const col=running>0?'#1a4fa0':running<0?'#c0392b':'#555';
+          td.innerHTML=`<span style="color:${col}">${fmt(Math.abs(running))}${running<0?' (-)':''}</span>`;
+        }
+        tr.appendChild(td);
+      }
+      const atd=document.createElement('td');
+      atd.style.cssText=`padding:3px 8px;border:1px solid #c8d8f8;text-align:right;font-size:12px;font-weight:800;background:#eef3fc`;
+      if(lastVal===null){
+        atd.innerHTML=`<span style="color:#aaa">-</span>`;
+      } else {
+        const col=lastVal>0?'#1a4fa0':lastVal<0?'#c0392b':'#555';
+        atd.innerHTML=`<span style="color:${col}">${fmt(Math.abs(lastVal))}${lastVal<0?' (-)':''}</span>`;
+      }
+      if(base===null){
+        const hint=document.createElement('div');
+        hint.style.cssText=`font-size:10px;color:#aaa;padding:2px 10px 4px;background:#eef3fc;border:1px solid #c8d8f8;border-top:none`;
+        hint.textContent='현금흐름 탭에서 기초잔액을 입력하면 표시됩니다';
+        tr.appendChild(atd);
+        tbody.appendChild(tr);
+        tbody.appendChild(hint);
+      } else {
+        tr.appendChild(atd);
+        tbody.appendChild(tr);
+      }
       return;
     }
     const isSub=(item.t==='s'||item.t==='s2'||item.t==='sc');
