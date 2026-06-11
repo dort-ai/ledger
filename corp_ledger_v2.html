@@ -4027,17 +4027,23 @@ function importForecastXlsx(input, cid, year){
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
       if(rows.length<2){alert('데이터가 없습니다.');return;}
+
+      // 헤더에서 1월 컬럼 위치 자동 감지 (입력방식 컬럼 유무와 무관하게 동작)
+      const header=rows[0].map(h=>String(h||'').trim());
+      const m1col=header.findIndex(h=>h==='1월');
+      if(m1col<0){alert('헤더에 "1월" 컬럼이 없습니다. 내보내기로 받은 양식을 사용해주세요.');return;}
+
       ensureForecast(cid,year);
       let cnt=0;
       rows.slice(1).forEach(row=>{
         const sec=String(row[0]||'').trim();
         const k=String(row[1]||'').trim();
-        if(!sec||!k||( sec!=='pnl'&&sec!=='cash')) return;
+        if(!sec||!k||(sec!=='pnl'&&sec!=='cash')) return;
         const sg=signMap[sec+'::'+k]??0; // sign=0이면 사용자 입력 그대로
         for(let m=1;m<=12;m++){
-          const raw=row[3+m]; // col4~15 = 1월~12월 (입력방식 컬럼 추가로 offset+1)
+          const raw=row[m1col+(m-1)];
           const abs=raw===''||raw==null?0:parseFloat(String(raw).replace(/,/g,''))||0;
-          // sign≠0: 절대값*sign, sign=0: 그대로(부호 포함된 값)
+          // sign≠0: 절대값*sign 자동 적용 / sign=0: 부호 포함 그대로
           const v=sg!==0?Math.abs(abs)*sg:abs;
           if(!ST.forecast[cid][year][sec][k]) ST.forecast[cid][year][sec][k]={};
           ST.forecast[cid][year][sec][k][m]=v;
