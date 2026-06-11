@@ -3569,51 +3569,139 @@ let _fcEditInp=null;
 let _fcItems=[];   // 현재 렌더된 items 참조
 let _fcCid='', _fcYear2='', _fcSec='';
 
-function renderForecastTable(cid, year, items, section, tbodyId){
+// 해당 연도·월이 이미 지난 달인지 (실적 표시 구간)
+function isPastFcMonth(year, month){
+  const now=new Date();
+  const cy=now.getFullYear(), cm=now.getMonth()+1;
+  return Number(year)<cy||(Number(year)===cy&&month<cm);
+}
+
+// cfMap 항목의 실제 집계값 (현금흐름 탭과 동일 로직)
+function getCfItemActual(cid, year, cfItem, month){
+  const y2=String(year).slice(-2);
+  const pad=month<10?`0${month}`:String(month);
+  const monthStr=`${y2}년 ${pad}월`;
+  const rows=getRows(cid).filter(r=>r.month===monthStr&&r.cat2!=='계좌간'&&r.cat1!=='계좌간');
+  if(cfItem.type==='pl_net'){
+    return rows.filter(r=>cfItem.cat1s.includes(r.cat1)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+  }
+  if(cfItem.keys){
+    return rows.filter(r=>cfItem.keys.includes(r.cat2)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+  }
+  return 0;
+}
+
+// cfMap 구조를 추정 테이블 items로 변환 (현금흐름 탭과 동일 행 구성)
+function buildCashFcItems(cid){
+  const cfMap=getCfMap(cid);
+  const items=[];
+  const allKeys=[];
+  for(const sec of cfMap){
+    items.push({t:'h',l:sec.section,bg:sec.bg});
+    const secKeys=[];
+    for(const cfIt of sec.items){
+      const k='cf::'+cfIt.label;
+      items.push({t:'i',l:cfIt.label,k,_cfItem:cfIt});
+      secKeys.push(k);
+    }
+    items.push({t:'s',l:sec.section+' 소계',ks:secKeys,bold:1,bg:sec.bg});
+    allKeys.push(...secKeys);
+  }
+  items.push({t:'s',l:'✦ 현금의 순증감',ks:allKeys,bold:1});
+  return items;
+}
+
+// actFn(item, month) → number(실적값) | null(실적 없는 행)
+function renderForecastTable(cid, year, items, section, tbodyId, actFn){
   _fcItems=items; _fcCid=cid; _fcYear2=year; _fcSec=section;
   const tbody=document.getElementById(tbodyId);
   if(!tbody)return;
   tbody.innerHTML='';
+
+  // key → item 빠른 조회
+  const keyToItem={};
+  items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
+
+  // 실적/예측 혼합 유효값: 지난달이면 실적, 아니면 예측 저장값
+  function effVal(k, month){
+    const it=keyToItem[k];
+    if(it&&actFn&&isPastFcMonth(year,month)){
+      const act=actFn(it,month);
+      if(act!==null) return act;
+    }
+    return getForecastVal(cid,year,section,k,month);
+  }
+
+  // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
+  function dispVal(item, month){
+    if(item.t==='i') return effVal(item.k,month);
+    if(item.t==='s') return item.ks.reduce((s,k)=>s+effVal(k,month),0);
+    if(item.t==='s2'){
+      return (item.p||[]).reduce((s,k)=>s+effVal(k,month),0)
+            -(item.m||[]).reduce((s,k)=>s+effVal(k,month),0);
+    }
+    if(item.t==='sc'){
+      const ck=item.cat1Keys||{};
+      const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+effVal(k,month),0);
+      const id=item.id;
+      if(id==='매출이익')   return sumC1('매출액')+sumC1('매출원가');
+      if(id==='영업이익')   return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비');
+      if(id==='당기순이익') return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
+      return 0;
+    }
+    return 0;
+  }
+
   items.forEach((item,ri)=>{
     if(item.t==='h'){
       const tr=document.createElement('tr');
-      tr.style.cssText='background:#e8edf8';
+      tr.style.cssText=`background:${item.bg||'#e8edf8'}`;
       tr.innerHTML=`<td colspan="14" style="padding:5px 10px;font-weight:700;color:#2a4a8a;font-size:11px;border:1px solid #dde3f0">${item.l}</td>`;
       tbody.appendChild(tr);
       return;
     }
     const isSub=(item.t==='s'||item.t==='s2'||item.t==='sc');
     const tr=document.createElement('tr');
-    // 라벨 셀
     const lc=document.createElement('td');
     lc.style.cssText=`padding:4px 10px;${item.t==='i'?'padding-left:20px':'padding-left:10px'};border:1px solid #eee;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':'background:#fff'};position:sticky;left:0;z-index:1;min-width:150px;${item.bold?'font-weight:800':''}`;
     lc.textContent=item.l;
     tr.appendChild(lc);
-    // 월별 셀
     let ann=0;
     for(let m=1;m<=12;m++){
       const td=document.createElement('td');
-      const v=item.t==='i'?getForecastVal(cid,year,section,item.k,m):calcForecastSubtotal(cid,year,section,item,m);
+      const v=dispVal(item,m);
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${v<0?'color:#c0392b':''};${isSub?'background:#f0f4ff;font-weight:700':''}`;
-      fcSetCellContent(td,v,cid,year,section,item,m);
-      if(item.t==='i'){
-        td.style.cursor='pointer';
-        td.addEventListener('mousedown',e=>{
-          e.preventDefault();
-          fcCommitEdit();
-          _fcAnchor={ri,mi:m};
-          fcUpdateHL(tbody);
-          // 컨테이너 포커스
-          const wrap=tbody.closest('[data-fc-wrap]');
-          if(wrap) wrap.focus();
-        });
-        td.addEventListener('dblclick',e=>{e.preventDefault();fcStartEdit(td,ri,m,false);});
+      const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${v<0?'color:#c0392b':''};${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3;color:#555':''}`;
+      if(isPastCell){
+        td.innerHTML=v===0?'<span style="color:#ccc">—</span>':fmt(v);
+      } else {
+        let actHtml='';
+        if(_fcCompare&&item.t==='i'&&item.cat1&&item.cat2){
+          const act=getForecastActual(cid,year,item.cat1,item.cat2,m);
+          if(act!==0||v!==0){
+            const rate=v!==0?Math.round(Math.abs(act)/Math.abs(v)*100):0;
+            const cls=rate>=90?'color:#1a7a4a':'color:#c0392b';
+            actHtml=`<div style="font-size:10px;color:#999;margin-top:1px">${fmt(Math.abs(act))} <span style="${cls}">${rate}%</span></div>`;
+          }
+        }
+        td.innerHTML=(v===0?'<span style="color:#ccc">—</span>':fmt(v))+actHtml;
+        if(item.t==='i'){
+          td.style.cursor='pointer';
+          td.addEventListener('mousedown',e=>{
+            e.preventDefault();
+            fcCommitEdit();
+            _fcAnchor={ri,mi:m};
+            fcUpdateHL(tbody);
+            const wrap=tbody.closest('[data-fc-wrap]');
+            if(wrap) wrap.focus();
+          });
+          td.addEventListener('dblclick',e=>{e.preventDefault();fcStartEdit(td,ri,m,false);});
+        }
       }
       tr.appendChild(td);
     }
-    // 연간합계 셀
     const atd=document.createElement('td');
     atd.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${item.bold?'font-weight:800':'font-weight:600'};${ann<0?'color:#c0392b':''};background:#f8f8f5`;
     atd.innerHTML=ann===0?'<span style="color:#ccc">—</span>':fmt(ann);
@@ -3621,7 +3709,6 @@ function renderForecastTable(cid, year, items, section, tbodyId){
     tbody.appendChild(tr);
   });
   fcUpdateHL(tbody);
-  // 키보드 핸들러: 테이블 래퍼에 등록
   const wrap=tbody.closest('[data-fc-wrap]');
   if(wrap && !wrap._fcKbBound){
     wrap._fcKbBound=true;
@@ -3928,8 +4015,8 @@ function renderForecast(){
         <table style="border-collapse:collapse;width:100%;min-width:1100px">
           <thead><tr style="background:#f0f0ec">
             <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:left;min-width:150px;position:sticky;left:0;z-index:2">항목</th>
-            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap">${m}월</th>`).join('')}
-            <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap">연간합계</th>
+            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const p=isPastFcMonth(_fcYear,m);return`<th style="padding:4px 8px;font-size:11px;border:1px solid #e4e4de;text-align:center;white-space:nowrap;background:${p?'#ebebea':'#eef3fc'};color:${p?'#777':'#3a6bcc'}">${m}월<div style="font-size:9px;font-weight:400">${p?'실적':'예측'}</div></th>`;}).join('')}
+            <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap">연간전망</th>
           </tr></thead>
           <tbody id="${_fcSection}FcBody"></tbody>
         </table>
@@ -3937,9 +4024,19 @@ function renderForecast(){
     </div>
     <div id="fcEventsWrap" style="${_fcSection!=='events'?'display:none':''}"></div>
   `;
-  if(_fcSection==='pnl') renderForecastTable(cid,year,buildPnlItems(cid),'pnl','pnlFcBody');
-  else if(_fcSection==='cash') renderForecastTable(cid,year,CASH_ITEMS,'cash','cashFcBody');
-  else renderForecastEvents(cid,year);
+  if(_fcSection==='pnl'){
+    const actFn=(item,month)=>{
+      if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(cid,year,item.cat1,item.cat2,month);
+      return null;
+    };
+    renderForecastTable(cid,year,buildPnlItems(cid),'pnl','pnlFcBody',actFn);
+  } else if(_fcSection==='cash'){
+    const actFn=(item,month)=>{
+      if(item._cfItem) return getCfItemActual(cid,year,item._cfItem,month);
+      return null;
+    };
+    renderForecastTable(cid,year,buildCashFcItems(cid),'cash','cashFcBody',actFn);
+  } else renderForecastEvents(cid,year);
 }
 
 // 억/만 단위 포맷
