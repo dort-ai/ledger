@@ -2233,17 +2233,22 @@ function plDrop(e){
   const tr=e.currentTarget;
   const toCat1=tr.dataset.cat1, toCat2=tr.dataset.cat2;
   if(!toCat2||toCat2===_plDragCat2||toCat1!==_plDragCat1)return;
-  const ac=getAc(curCo), obj=ac[_plDragCat1]||{};
-  const base=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order');
-  const keys=[...base];
-  const fi=keys.indexOf(_plDragCat2), ti=keys.indexOf(toCat2);
-  if(fi===-1||ti===-1)return;
-  keys.splice(fi,1); keys.splice(ti,0,_plDragCat2);
-  const newObj={};
-  keys.forEach(k=>{if(k in obj)newObj[k]=obj[k];});
-  if(obj._cat4)newObj._cat4=obj._cat4;
-  newObj._order=keys;
-  ST.accounts[curCo][_plDragCat1]=newObj;
+  const applyOrder=cid=>{
+    if(!ST.accounts[cid]) return;
+    const obj=ST.accounts[cid][_plDragCat1]||{};
+    const base=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order');
+    const keys=[...base];
+    const fi=keys.indexOf(_plDragCat2), ti=keys.indexOf(toCat2);
+    if(fi===-1||ti===-1) return;
+    keys.splice(fi,1); keys.splice(ti,0,_plDragCat2);
+    const newObj={};
+    keys.forEach(k=>{if(k in obj)newObj[k]=obj[k];});
+    if(obj._cat4)newObj._cat4=obj._cat4;
+    newObj._order=keys;
+    ST.accounts[cid][_plDragCat1]=newObj;
+  };
+  if(curCo==='__all__') ST.companies.forEach(c=>applyOrder(c.id));
+  else applyOrder(curCo);
   save(); renderPL();
 }
 
@@ -2277,7 +2282,11 @@ function renderPL(){
   // 계정과목 구조 순서대로 cat2 정렬, 없는 것은 뒤에
   const getCat2s=cat1=>{
     if(!agg[cat1])return[];
-    const obj=ac[cat1]||{};
+    let obj=ac[cat1]||{};
+    if(isAll){
+      const co=ST.companies.find(c=>ST.accounts[c.id]?.[cat1]);
+      if(co) obj=ST.accounts[co.id][cat1]||{};
+    }
     const acOrd=obj._order||Object.keys(obj).filter(k=>k!=='_cat4'&&k!=='_order').sort();
     const dataKeys=Object.keys(agg[cat1]);
     return[...acOrd.filter(k=>dataKeys.includes(k)),...dataKeys.filter(k=>!acOrd.includes(k))];
