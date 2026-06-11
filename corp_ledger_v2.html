@@ -3717,18 +3717,18 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
       td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3':''}`;
       if(isPastCell||isPnlRef){
-        td.innerHTML=cellFmt(item,v);
-      } else {
         let actHtml='';
-        if(_fcCompare&&item.t==='i'&&item.cat1&&item.cat2){
-          const act=getForecastActual(cid,year,item.cat1,item.cat2,m);
-          if(act!==0||v!==0){
-            const rate=v!==0?Math.round(Math.abs(act)/Math.abs(v)*100):0;
+        if(_fcCompare&&isPastCell){
+          const fcVal=getForecastVal(cid,year,section,item.k,m);
+          if(fcVal!==0||v!==0){
+            const rate=fcVal!==0?Math.round(Math.abs(v)/Math.abs(fcVal)*100):0;
             const cls=rate>=90?'color:#1a7a4a':'color:#c0392b';
-            actHtml=`<div style="font-size:10px;color:#999;margin-top:1px">${fmt(Math.abs(act))} <span style="${cls}">${rate}%</span></div>`;
+            actHtml=`<div style="font-size:10px;color:#999;margin-top:1px">예측 ${fmt(Math.abs(fcVal))} <span style="${cls}">${rate}%</span></div>`;
           }
         }
         td.innerHTML=cellFmt(item,v)+actHtml;
+      } else {
+        td.innerHTML=cellFmt(item,v);
         if(item.t==='i'){
           td.style.cursor='pointer';
           td.addEventListener('mousedown',e=>{
@@ -4105,7 +4105,6 @@ function renderForecast(){
   const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=getForecastVal(cid,year,'pnl',i.k,m);return s;},0);
   const totalRev=sumCat1Annual('매출액');
   const netProfit=sumCat1Annual('매출액')+sumCat1Annual('매출원가')+sumCat1Annual('판매비와관리비')+sumCat1Annual('영업외수익')+sumCat1Annual('영업외비용')+sumCat1Annual('법인세');
-  const evCount=(ST.forecast[cid][year].events||[]).length;
 
   document.getElementById('forecast-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
@@ -4122,22 +4121,20 @@ function renderForecast(){
         </label>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
-      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">지점 처분 이벤트</div><div style="font-size:18px;font-weight:700">${evCount}건</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">실적 비교</div><div style="font-size:14px;font-weight:600;color:${_fcCompare?'#3a6bcc':'#aaa'}">${_fcCompare?'ON — 비교 중':'OFF'}</div></div>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
       <button onclick="_fcSection='pnl';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='pnl'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='pnl'?'#3a6bcc':'#fff'};color:${_fcSection==='pnl'?'#fff':'#666'};font-size:12px;cursor:pointer">손익 추정</button>
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
-      <button onclick="_fcSection='events';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='events'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='events'?'#3a6bcc':'#fff'};color:${_fcSection==='events'?'#fff':'#666'};font-size:12px;cursor:pointer">지점 처분 이벤트</button>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
         <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
       </div>
     </div>
-    <div id="fcTableWrap" style="${_fcSection==='events'?'display:none':''}">
+    <div id="fcTableWrap">
       <div data-fc-wrap tabindex="0" style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);background:#fff;outline:none">
         <table style="border-collapse:collapse;width:100%;min-width:1100px">
           <thead><tr style="background:#f0f0ec">
@@ -4149,7 +4146,6 @@ function renderForecast(){
         </table>
       </div>
     </div>
-    <div id="fcEventsWrap" style="${_fcSection!=='events'?'display:none':''}"></div>
   `;
   if(_fcSection==='pnl'){
     const actFn=(item,month)=>{
@@ -4163,7 +4159,10 @@ function renderForecast(){
       return null;
     };
     renderForecastTable(cid,year,buildCashFcItems(cid),'cash','cashFcBody',actFn);
-  } else renderForecastEvents(cid,year);
+  } else {
+    _fcSection='pnl';
+    renderForecast();
+  }
 }
 
 // 억/만 단위 포맷
