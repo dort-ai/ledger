@@ -3704,7 +3704,14 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
     }
     // 기말잔액 누적 행 특수 처리
     if(item.t==='bal_end'){
-      const base=ST.cfBaseBalance?.[cid]?.[year]??null;
+      let base;
+      if(cid==='__all__'){
+        const allBases=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[year]);
+        const hasAny=allBases.some(b=>b!=null);
+        base=hasAny?allBases.reduce((s,b)=>s+(b??0),0):null;
+      } else {
+        base=ST.cfBaseBalance?.[cid]?.[year]??null;
+      }
       const tr=document.createElement('tr');
       const lc=document.createElement('td');
       lc.style.cssText=`padding:4px 10px;border:1px solid #c8d8f8;font-size:12px;font-weight:800;background:#eef3fc;position:sticky;left:0;z-index:1;min-width:150px`;
