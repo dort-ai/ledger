@@ -3715,7 +3715,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
       const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell||isPnlRef?'background:#f5f5f3':''}`;
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3':''}`;
       if(isPastCell||isPnlRef){
         td.innerHTML=cellFmt(item,v);
       } else {
@@ -3823,8 +3823,19 @@ function fcCommitEdit(){
 }
 
 function fcRefreshTable(){
-  const items=_fcSec==='pnl'?buildPnlItems(_fcCid):CASH_ITEMS;
-  renderForecastTable(_fcCid,_fcYear2,items,_fcSec,_fcSec+'FcBody');
+  if(_fcSec==='pnl'){
+    const actFn=(item,month)=>{
+      if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(_fcCid,_fcYear2,item.cat1,item.cat2,month);
+      return null;
+    };
+    renderForecastTable(_fcCid,_fcYear2,buildPnlItems(_fcCid),'pnl','pnlFcBody',actFn);
+  } else if(_fcSec==='cash'){
+    const actFn=(item,month)=>{
+      if(item._cfItem) return getCfItemActual(_fcCid,_fcYear2,item._cfItem,month);
+      return null;
+    };
+    renderForecastTable(_fcCid,_fcYear2,buildCashFcItems(_fcCid),'cash','cashFcBody',actFn);
+  }
 }
 
 function fcEditKD(e){
