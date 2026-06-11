@@ -3442,7 +3442,21 @@ const PNL_CAT1_ORDER = [
 
 // cat1 그룹별로 실제 계정과목(cat2)을 읽어 동적으로 PNL 항목 배열 생성
 function buildPnlItems(cid){
-  const ac=getAc(cid);
+  let ac;
+  if(cid==='__all__'){
+    ac={};
+    ST.companies.forEach(c=>{
+      const cAc=getAc(c.id);
+      Object.entries(cAc).forEach(([c1,sub])=>{
+        if(_isMetaKey(c1))return;
+        if(!ac[c1])ac[c1]={};
+        Object.keys(sub).filter(k=>!_isMetaKey(k)).forEach(c2=>{if(!(c2 in ac[c1]))ac[c1][c2]=[];});
+        if(!ac[c1]._order&&sub._order)ac[c1]._order=[...sub._order];
+      });
+    });
+  } else {
+    ac=getAc(cid);
+  }
   const items=[];
   // cat1별 cat2 keys 수집 (나중에 소계 계산용)
   const cat1Keys={};  // {cat1: [k, ...]}
