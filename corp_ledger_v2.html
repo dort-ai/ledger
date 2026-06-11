@@ -2204,6 +2204,58 @@ function openCfDrill(idx){
   if(tbl) makeResizable(tbl);
   document.getElementById('pl-drill-ov').classList.add('show');
 }
+// 추정 탭 실적 셀 드릴다운
+function openFcDrill(cid, year, section, item, month){
+  const y2=String(year).slice(-2);
+  const pad=month<10?`0${month}`:String(month);
+  const monthStr=`${y2}년 ${pad}월`;
+  const plNetCat1s=['매출액','매출원가','판매비와관리비','영업외수익','영업외비용','법인세'];
+  let rows=getRows(cid).filter(r=>r.cat2!=='계좌간'&&r.cat1!=='계좌간'&&r.month===monthStr);
+  let title='';
+  if(item.t==='pnl_ref'||(item._cfItem&&item._cfItem.type==='pl_net')){
+    rows=rows.filter(r=>plNetCat1s.includes(r.cat1));
+    title=`당기순이익 — ${monthStr}`;
+  } else if(section==='pnl'&&item.cat1&&item.cat2){
+    rows=rows.filter(r=>r.cat1===item.cat1&&r.cat2===item.cat2);
+    title=`${item.cat1} / ${item.cat2} — ${monthStr}`;
+  } else if(item._cfItem){
+    const cfIt=item._cfItem;
+    if(cfIt.keys) rows=rows.filter(r=>cfIt.keys.includes(r.cat2));
+    title=`${item.l} — ${monthStr}`;
+  } else return;
+  document.getElementById('pl-drill-title').textContent=title;
+  const totI=rows.reduce((s,r)=>s+num(r.income),0);
+  const totE=rows.reduce((s,r)=>s+num(r.expense),0);
+  const net=totI-totE;
+  document.getElementById('pl-drill-summary').innerHTML=
+    `<span style="color:#555">${rows.length}건</span>`+
+    (totI?`<span style="color:#1a7a4a">입금 ${fmt(totI)}</span>`:'')+
+    (totE?`<span style="color:#c0392b">지급 ${fmt(totE)}</span>`:'')+
+    `<span style="font-weight:700;color:${net>=0?'#1a7a4a':'#c0392b'}">순 ${net<0?'-':''}${fmt(Math.abs(net))}</span>`;
+  const thS='padding:6px 8px;background:#f8f8f7;border-bottom:2px solid #ddd;white-space:nowrap;position:sticky;top:0;z-index:1';
+  const mkTd=(v,extra='')=>`<td style="padding:5px 8px;${extra}" title="${String(v).replace(/"/g,'&quot;')}">${v}</td>`;
+  document.getElementById('pl-drill-body').innerHTML=rows.length===0
+    ?'<p style="color:#aaa;font-size:12px;padding:20px;text-align:center">내역이 없습니다</p>'
+    :`<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="${thS};text-align:left">날짜</th><th style="${thS};text-align:left">기재내용</th>
+        <th style="${thS};text-align:right">입금</th><th style="${thS};text-align:right">지급</th>
+        <th style="${thS};text-align:left">대분류</th><th style="${thS};text-align:left">중분류</th>
+        <th style="${thS};text-align:left">소분류</th><th style="${thS};text-align:left">소속</th>
+        <th style="${thS};text-align:left">비고</th><th style="${thS};text-align:left">계좌</th>
+      </tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#fafafa':'#fff'};border-bottom:1px solid #f0f0f0">
+        ${mkTd((r.date||'').slice(0,10),'color:#888')}${mkTd(r.desc||'')}
+        ${mkTd(num(r.income)?fmt(num(r.income)):'','text-align:right;color:#1a7a4a')}
+        ${mkTd(num(r.expense)?fmt(num(r.expense)):'','text-align:right;color:#c0392b')}
+        ${mkTd(r.cat1||'','color:#555')}${mkTd(r.cat2||'','color:#555')}
+        ${mkTd(r.cat3||'','color:#888')}${mkTd(r.cat4||'','color:#888')}
+        ${mkTd(r.note||'','color:#888')}${mkTd(r.wallet||'','color:#888')}
+      </tr>`).join('')}</tbody></table>`;
+  const tbl=document.querySelector('#pl-drill-body table');
+  if(tbl) makeResizable(tbl);
+  document.getElementById('pl-drill-ov').classList.add('show');
+}
 function togglePlReorder(){
   _plReordering=!_plReordering;
   const btn=document.getElementById('btn-pl-reorder');
@@ -3823,6 +3875,12 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
           }
         }
         td.innerHTML=cellFmt(item,v)+actHtml;
+        const drillable=(isPastCell&&(section==='pnl'?item.cat1&&item.cat2:item._cfItem))||isPnlRef;
+        if(drillable){
+          td.style.cursor='pointer';
+          td.title='클릭하여 상세내역 보기';
+          td.addEventListener('click',()=>openFcDrill(cid,year,section,item,m));
+        }
       } else {
         td.innerHTML=cellFmt(item,v);
         if(item.t==='i'){
