@@ -3540,7 +3540,7 @@ function getForecastActual(cid, year, cat1, cat2, month){
   const y2=String(year).slice(-2);
   const monthStr = month < 10 ? `${y2}년 0${month}월` : `${y2}년 ${month}월`;
   return ST.rows
-    .filter(r=>r.companyId===cid && r.month===monthStr && r.cat1===cat1 && r.cat2===cat2)
+    .filter(r=>(cid==='__all__'||r.companyId===cid) && r.month===monthStr && r.cat1===cat1 && r.cat2===cat2)
     .reduce((s,r)=>s+num(r.income)-num(r.expense),0);
 }
 
@@ -3670,7 +3670,10 @@ function getPnlForecastNet(cid, year, month){
   const netItem=pnlItems.find(it=>it.t==='sc'&&it.id==='당기순이익');
   if(!netItem) return 0;
   const ck=netItem.cat1Keys||{};
-  const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+getForecastVal(cid,year,'pnl',k,month),0);
+  const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>{
+    if(cid==='__all__') return s+ST.companies.reduce((ss,c)=>ss+getForecastVal(c.id,year,'pnl',k,month),0);
+    return s+getForecastVal(cid,year,'pnl',k,month);
+  },0);
   return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
 }
 
