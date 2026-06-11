@@ -3652,6 +3652,13 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
     return 0;
   }
 
+  // 손익/현금흐름 탭과 동일한 숫자 표기: 양수=초록, 음수=(괄호)빨강, 0=회색 대시
+  const fmtFc=v=>{
+    if(v===0) return '<span style="color:#ccc">—</span>';
+    const s=fmt(Math.abs(v));
+    return v<0?`<span style="color:#c0392b">(${s})</span>`:`<span style="color:#1a7a4a">${s}</span>`;
+  };
+
   items.forEach((item,ri)=>{
     if(item.t==='h'){
       const tr=document.createElement('tr');
@@ -3673,9 +3680,9 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
       const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${v<0?'color:#c0392b':''};${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3;color:#555':''}`;
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3':''}`;
       if(isPastCell){
-        td.innerHTML=v===0?'<span style="color:#ccc">—</span>':fmt(v);
+        td.innerHTML=fmtFc(v);
       } else {
         let actHtml='';
         if(_fcCompare&&item.t==='i'&&item.cat1&&item.cat2){
@@ -3686,7 +3693,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
             actHtml=`<div style="font-size:10px;color:#999;margin-top:1px">${fmt(Math.abs(act))} <span style="${cls}">${rate}%</span></div>`;
           }
         }
-        td.innerHTML=(v===0?'<span style="color:#ccc">—</span>':fmt(v))+actHtml;
+        td.innerHTML=fmtFc(v)+actHtml;
         if(item.t==='i'){
           td.style.cursor='pointer';
           td.addEventListener('mousedown',e=>{
@@ -3703,8 +3710,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       tr.appendChild(td);
     }
     const atd=document.createElement('td');
-    atd.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${item.bold?'font-weight:800':'font-weight:600'};${ann<0?'color:#c0392b':''};background:#f8f8f5`;
-    atd.innerHTML=ann===0?'<span style="color:#ccc">—</span>':fmt(ann);
+    atd.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${item.bold?'font-weight:800':'font-weight:600'};background:#f8f8f5`;
+    atd.innerHTML=fmtFc(ann);
     tr.appendChild(atd);
     tbody.appendChild(tr);
   });
