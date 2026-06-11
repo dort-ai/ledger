@@ -3737,7 +3737,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
             _fcAnchor={ri,mi:m};
             fcUpdateHL(tbody);
             const wrap=tbody.closest('[data-fc-wrap]');
-            if(wrap) wrap.focus();
+            if(wrap) wrap.focus({preventScroll:true});
           });
           td.addEventListener('dblclick',e=>{e.preventDefault();fcStartEdit(td,ri,m,false);});
         }
