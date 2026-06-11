@@ -3979,6 +3979,67 @@ function fcEventDelete(cid, year, idx){
   renderForecastEvents(cid,year);
 }
 
+// 추정 엑셀 내보내기 — 손익·현금 시트 하나로
+function exportForecastXlsx(cid, year){
+  const months=[1,2,3,4,5,6,7,8,9,10,11,12];
+  const header=['섹션','키','항목',...months.map(m=>m+'월')];
+  const rows=[header];
+
+  // 손익 추정
+  buildPnlItems(cid).filter(i=>i.t==='i').forEach(i=>{
+    rows.push(['pnl', i.k, i.l, ...months.map(m=>getForecastVal(cid,year,'pnl',i.k,m)||'')]);
+  });
+  // 현금 추정
+  buildCashFcItems(cid).filter(i=>i.t==='i').forEach(i=>{
+    rows.push(['cash', i.k, i.l, ...months.map(m=>getForecastVal(cid,year,'cash',i.k,m)||'')]);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:6},{wch:28},{wch:24},...months.map(()=>({wch:11}))];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'추정');
+  const co=getCo(cid);
+  XLSX.writeFile(wb,`${co?.name||cid}_추정_${year}.xlsx`);
+}
+
+// 추정 엑셀 가져오기 — 키 매칭 후 덮어쓰기
+function importForecastXlsx(input, cid, year){
+  const file=input.files[0];
+  if(!file) return;
+  input.value='';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      if(rows.length<2){alert('데이터가 없습니다.');return;}
+      ensureForecast(cid,year);
+      let cnt=0;
+      rows.slice(1).forEach(row=>{
+        const sec=String(row[0]||'').trim();
+        const k=String(row[1]||'').trim();
+        if(!sec||!k) return;
+        if(sec!=='pnl'&&sec!=='cash') return;
+        for(let m=1;m<=12;m++){
+          const raw=row[2+m]; // col 3~14 = 1월~12월
+          const v=raw===''||raw==null?0:parseInt(String(raw).replace(/[^0-9\-]/g,''))||0;
+          if(!ST.forecast[cid][year][sec][k]) ST.forecast[cid][year][sec][k]={};
+          ST.forecast[cid][year][sec][k][m]=v;
+        }
+        cnt++;
+      });
+      save();
+      renderForecast();
+      alert(`${cnt}개 항목 가져오기 완료 (${year}년 추정 덮어쓰기)`);
+    }catch(err){
+      console.error(err);
+      alert('파일을 읽는 중 오류가 발생했습니다.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 // 메인 렌더 함수
 function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
@@ -4020,10 +4081,14 @@ function renderForecast(){
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">지점 처분 이벤트</div><div style="font-size:18px;font-weight:700">${evCount}건</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">실적 비교</div><div style="font-size:14px;font-weight:600;color:${_fcCompare?'#3a6bcc':'#aaa'}">${_fcCompare?'ON — 비교 중':'OFF'}</div></div>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:12px">
+    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
       <button onclick="_fcSection='pnl';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='pnl'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='pnl'?'#3a6bcc':'#fff'};color:${_fcSection==='pnl'?'#fff':'#666'};font-size:12px;cursor:pointer">손익 추정</button>
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
       <button onclick="_fcSection='events';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='events'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='events'?'#3a6bcc':'#fff'};color:${_fcSection==='events'?'#fff':'#666'};font-size:12px;cursor:pointer">지점 처분 이벤트</button>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
+        <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
+      </div>
     </div>
     <div id="fcTableWrap" style="${_fcSection==='events'?'display:none':''}">
       <div data-fc-wrap tabindex="0" style="overflow-x:auto;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);background:#fff;outline:none">
