@@ -2495,8 +2495,14 @@ function renderCashflow(){
 
   // 기말잔액 행
   const baseKey=periodYear||'all';
-  const baseVal=(ST.cfBaseBalance&&ST.cfBaseBalance[curCo]&&ST.cfBaseBalance[curCo][baseKey]!=null)
-    ?ST.cfBaseBalance[curCo][baseKey]:null;
+  let baseVal;
+  if(curCo==='__all__'){
+    const allBases=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[baseKey]);
+    baseVal=allBases.some(b=>b!=null)?allBases.reduce((s,b)=>s+(b??0),0):null;
+  } else {
+    baseVal=(ST.cfBaseBalance&&ST.cfBaseBalance[curCo]&&ST.cfBaseBalance[curCo][baseKey]!=null)
+      ?ST.cfBaseBalance[curCo][baseKey]:null;
+  }
   const endingBals=[];
   months.forEach((m,i)=>{
     const prev=i===0?((baseVal==null)?null:baseVal):endingBals[i-1];
@@ -2517,15 +2523,24 @@ function renderCashflow(){
   html+=`</tbody></table>`;
 
   // 기초잔액 입력 영역
-  const inputId='cf-base-input-'+curCo+'-'+baseKey;
-  const dispVal=baseVal!=null?baseVal:'';
-  html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;background:#f0f4ff;border-radius:6px;border:1px solid #c8d8f8">
-    <span style="font-size:11px;color:#444;white-space:nowrap">📌 기초잔액 (${months[0]} 시작)</span>
-    <input id="${inputId}" type="text" value="${dispVal===''?'':fmt(dispVal)}" placeholder="숫자 입력 (원)" inputmode="numeric"
-      style="font-size:11px;padding:3px 7px;border:1px solid #b0c4f0;border-radius:4px;width:130px;text-align:right"
-      onchange="setCfBase(this,'${curCo}','${baseKey}')" onfocus="this.select()">
-    <span style="font-size:10px;color:#888">입력하면 기말잔액이 자동 계산됩니다</span>
-  </div>`;
+  if(curCo==='__all__'){
+    const missing=ST.companies.filter(c=>!ST.cfBaseBalance?.[c.id]?.[baseKey]);
+    html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;background:#f0f4ff;border-radius:6px;border:1px solid #c8d8f8">
+      <span style="font-size:11px;color:#444;white-space:nowrap">📌 기초잔액 합계 (${months[0]} 시작)</span>
+      <span style="font-size:12px;font-weight:700;color:#1a4fa0">${baseVal!=null?fmt(Math.abs(baseVal))+' 원':'—'}</span>
+      ${missing.length?`<span style="font-size:10px;color:#c0392b">미입력 법인: ${missing.map(c=>c.name).join(', ')}</span>`:''}
+    </div>`;
+  } else {
+    const inputId='cf-base-input-'+curCo+'-'+baseKey;
+    const dispBaseVal=baseVal!=null?baseVal:'';
+    html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;background:#f0f4ff;border-radius:6px;border:1px solid #c8d8f8">
+      <span style="font-size:11px;color:#444;white-space:nowrap">📌 기초잔액 (${months[0]} 시작)</span>
+      <input id="${inputId}" type="text" value="${dispBaseVal===''?'':fmt(dispBaseVal)}" placeholder="숫자 입력 (원)" inputmode="numeric"
+        style="font-size:11px;padding:3px 7px;border:1px solid #b0c4f0;border-radius:4px;width:130px;text-align:right"
+        onchange="setCfBase(this,'${curCo}','${baseKey}')" onfocus="this.select()">
+      <span style="font-size:10px;color:#888">입력하면 기말잔액이 자동 계산됩니다</span>
+    </div>`;
+  }
   html+=`<p style="font-size:10px;color:#aaa;margin-top:6px;padding:0 4px">※ 당기순이익은 대분류 기준 집계. 나머지 항목은 중분류(cat2) 기준. 계좌간 내부이체 제외.</p></div>`;
   document.getElementById('cashflow-content').innerHTML=html;
 }
