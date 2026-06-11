@@ -3601,7 +3601,11 @@ function buildCashFcItems(cid){
     const secKeys=[];
     for(const cfIt of sec.items){
       const k='cf::'+cfIt.label;
-      items.push({t:'i',l:cfIt.label,k,_cfItem:cfIt,sign:cfIt.sign??1});
+      if(cfIt.type==='pl_net'){
+        items.push({t:'pnl_ref',l:cfIt.label,k,_cfItem:cfIt,sign:cfIt.sign??1});
+      } else {
+        items.push({t:'i',l:cfIt.label,k,_cfItem:cfIt,sign:cfIt.sign??1});
+      }
       secKeys.push(k);
     }
     items.push({t:'s',l:sec.section+' 소계',ks:secKeys,bold:1,bg:sec.bg});
@@ -3609,6 +3613,26 @@ function buildCashFcItems(cid){
   }
   items.push({t:'s',l:'✦ 현금의 순증감',ks:allKeys,bold:1});
   return items;
+}
+
+// 손익 추정 당기순이익: 과거월=실적, 미래월=예측 계산값
+function getPnlForecastNet(cid, year, month){
+  if(isPastFcMonth(year, month)){
+    // 실제 데이터에서 당기순이익 계산 (getCfItemActual pl_net 방식)
+    const y2=String(year).slice(-2);
+    const pad=month<10?`0${month}`:String(month);
+    const monthStr=`${y2}년 ${pad}월`;
+    const rows=getRows(cid).filter(r=>r.month===monthStr&&r.cat2!=='계좌간'&&r.cat1!=='계좌간');
+    const plNetCat1s=['매출액','매출원가','판매비와관리비','영업외수익','영업외비용','법인세'];
+    return rows.filter(r=>plNetCat1s.includes(r.cat1)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+  }
+  // 미래월: buildPnlItems의 cat1Keys를 이용해 예측값 합산
+  const pnlItems=buildPnlItems(cid);
+  const netItem=pnlItems.find(it=>it.t==='sc'&&it.id==='당기순이익');
+  if(!netItem) return 0;
+  const ck=netItem.cat1Keys||{};
+  const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+getForecastVal(cid,year,'pnl',k,month),0);
+  return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
 }
 
 // actFn(item, month) → number(실적값) | null(실적 없는 행)
@@ -3625,6 +3649,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
   // 실적/예측 혼합 유효값: 지난달이면 실적, 아니면 예측 저장값
   function effVal(k, month){
     const it=keyToItem[k];
+    if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
     if(it&&actFn&&isPastFcMonth(year,month)){
       const act=actFn(it,month);
       if(act!==null) return act;
@@ -3634,6 +3659,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
 
   // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
   function dispVal(item, month){
+    if(item.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
     if(item.t==='i') return effVal(item.k,month);
     if(item.t==='s') return item.ks.reduce((s,k)=>s+effVal(k,month),0);
     if(item.t==='s2'){
@@ -3676,10 +3702,11 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       return;
     }
     const isSub=(item.t==='s'||item.t==='s2'||item.t==='sc');
+    const isPnlRef=(item.t==='pnl_ref');
     const tr=document.createElement('tr');
     const lc=document.createElement('td');
-    lc.style.cssText=`padding:4px 10px;${item.t==='i'?'padding-left:20px':'padding-left:10px'};border:1px solid #eee;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':'background:#fff'};position:sticky;left:0;z-index:1;min-width:150px;${item.bold?'font-weight:800':''}`;
-    lc.textContent=item.l;
+    lc.style.cssText=`padding:4px 10px;${item.t==='i'?'padding-left:20px':'padding-left:10px'};border:1px solid #eee;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPnlRef?'background:#e8f4ee;font-style:italic':'background:#fff'};position:sticky;left:0;z-index:1;min-width:150px;${item.bold?'font-weight:800':''}`;
+    lc.textContent=isPnlRef?item.l+' ↗':item.l;
     tr.appendChild(lc);
     let ann=0;
     for(let m=1;m<=12;m++){
@@ -3688,8 +3715,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
       const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell?'background:#f5f5f3':''}`;
-      if(isPastCell){
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPnlRef?'background:#e8f4ee':isPastCell?'background:#f5f5f3':''}`;
+      if(isPastCell||isPnlRef){
         td.innerHTML=cellFmt(item,v);
       } else {
         let actHtml='';
