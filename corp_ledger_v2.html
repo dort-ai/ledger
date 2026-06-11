@@ -3705,8 +3705,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
     const isPnlRef=(item.t==='pnl_ref');
     const tr=document.createElement('tr');
     const lc=document.createElement('td');
-    lc.style.cssText=`padding:4px 10px;${item.t==='i'?'padding-left:20px':'padding-left:10px'};border:1px solid #eee;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPnlRef?'background:#e8f4ee;font-style:italic':'background:#fff'};position:sticky;left:0;z-index:1;min-width:150px;${item.bold?'font-weight:800':''}`;
-    lc.textContent=isPnlRef?item.l+' ↗':item.l;
+    lc.style.cssText=`padding:4px 10px;${item.t==='i'||isPnlRef?'padding-left:20px':'padding-left:10px'};border:1px solid #eee;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':'background:#fff'};position:sticky;left:0;z-index:1;min-width:150px;${item.bold?'font-weight:800':''}`;
+    lc.textContent=item.l;
     tr.appendChild(lc);
     let ann=0;
     for(let m=1;m<=12;m++){
@@ -3715,7 +3715,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
       const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPnlRef?'background:#e8f4ee':isPastCell?'background:#f5f5f3':''}`;
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':isPastCell||isPnlRef?'background:#f5f5f3':''}`;
       if(isPastCell||isPnlRef){
         td.innerHTML=cellFmt(item,v);
       } else {
