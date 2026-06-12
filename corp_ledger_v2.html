@@ -721,7 +721,7 @@ async function saveToFirestore(){
       cfBaseBalance:   ST.cfBaseBalance||{},
       shareTokens:     ST.shareTokens||{},
       intercompanyCats:ST.intercompanyCats||[],
-      forecast:        ST.forecast||{},
+      forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
