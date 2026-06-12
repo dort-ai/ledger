@@ -721,6 +721,7 @@ async function saveToFirestore(){
       cfBaseBalance:   ST.cfBaseBalance||{},
       shareTokens:     ST.shareTokens||{},
       intercompanyCats:ST.intercompanyCats||[],
+      forecast:        ST.forecast||{},
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -851,6 +852,7 @@ async function loadFromFirestore(preloadedSnap){
     ST.cfBaseBalance =m.cfBaseBalance ||{};
     ST.shareTokens     =m.shareTokens     ||{};
     ST.intercompanyCats=m.intercompanyCats||[];
+    ST.forecast        =m.forecast        ||{};
     ST._metaMonths =(m.months     ||[]).sort();
 
     // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
