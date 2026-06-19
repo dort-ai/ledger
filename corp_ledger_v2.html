@@ -668,6 +668,7 @@ let isDragging=false;
 let _rows=[]; // 현재 필터된 행 캐시
 let _renderLimit=200; // 현재 DOM에 렌더된 행 수 (초기 200건, 스크롤 시 200건씩 추가)
 let filters={}, sortKey='', sortAsc=true;
+let _filterComposing=false;
 let periodYear=''; let periodMonth=''; let selectedMonths=new Set();
 let prevHL=new Set(); // 이전 하이라이트 td 캐시
 
@@ -1229,7 +1230,7 @@ function renderLedger(){
       fh=`<div class="ms-wrap"><button class="ms-btn${fv.length?' ms-active':''}" data-mskey="${col.k}" onclick="showMsDrop(event,'${col.k}')">${lbl}</button></div>`;
     } else if(col.filter==='text'){
       const fv=(filters[col.k]||'').replace(/"/g,'&quot;');
-      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oninput="clearTimeout(this._ft);this._ft=setTimeout(()=>setF('${col.k}',this.value,this),180)" oncompositionend="clearTimeout(this._ft);setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
+      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oncompositionstart="clearTimeout(this._ft)" oninput="if(event.isComposing||_filterComposing)return;clearTimeout(this._ft);this._ft=setTimeout(()=>setF('${col.k}',this.value,this),180)" oncompositionend="clearTimeout(this._ft);_filterComposing=true;setTimeout(()=>_filterComposing=false,20);setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
     }
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
