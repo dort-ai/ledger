@@ -4406,11 +4406,15 @@ function renderBranches(){
   // 각 지점에 퇴거계획 정보 병합
   const merged=branches.map(b=>{
     const ep=epMap[normBrId(b.id)]||null;
+    // sheetExitDate가 있으면 양도 또는 만료지점 시트에서 온 지점 → 기본 상태 '완료'
+    const hasSheetExit=!!(b.sheetExitDate);
+    const exitMonth=ep&&ep.exitMonth ? ep.exitMonth : (b.sheetExitDate||'');
+    const epStatus=ep&&ep.status ? ep.status : (hasSheetExit?'완료':'');
     return{
       ...b,
-      exitMonth: ep?ep.exitMonth:'',
+      exitMonth,
       keyMoney:  ep?Number(ep.keyMoney)||0:0,
-      epStatus:  ep?ep.status:'',
+      epStatus,
       notes:     ep?ep.notes:'',
     };
   });
