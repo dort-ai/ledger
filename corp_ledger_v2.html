@@ -4415,18 +4415,8 @@ function renderBranches(){
     };
   });
 
-  // 퇴거계획에는 있지만 지점현황에 없는 항목도 추가 (양도 또는 만료지점)
-  exitPlan.forEach(ep=>{
-    if(!branches.find(b=>normBrId(b.id)===normBrId(ep.id))){
-      merged.push({
-        id:ep.id, name:ep.id, rooms:0,
-        interior:0, deposit:Number(ep.deposit)||0,
-        rent:Number(ep.rent)||0, mgmtFee:Number(ep.mgmtFee)||0,
-        exitMonth:ep.exitMonth, keyMoney:Number(ep.keyMoney)||0,
-        epStatus:ep.status, notes:ep.notes,
-      });
-    }
-  });
+  // 양도지점 정리는 매칭 전용 — 별도 행 추가 안 함
+  // 완료된 지점은 Apps Script에서 '양도 또는 만료지점' 시트를 읽어 branches에 포함
 
   const statusFilter=document.getElementById('br-f-status')?.value||'';
   const filtered=statusFilter?merged.filter(b=>{
