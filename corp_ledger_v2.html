@@ -135,6 +135,16 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 .dep-badge.보유중{background:#dcfce7;color:#166534}
 .dep-badge.반환중{background:#fef9c3;color:#854d0e}
 .dep-badge.반환완료{background:#f1f5f9;color:#475569}
+/* 지점현황 탭 */
+.br-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.br-badge.운영중{background:#dcfce7;color:#166534}
+.br-badge.퇴거예정{background:#fef9c3;color:#854d0e}
+.br-badge.퇴거완료{background:#f1f5f9;color:#475569}
+.br-badge.확정{background:#fce7f3;color:#9d174d}
+.br-badge.진행중{background:#fef3c7;color:#92400e}
+.br-sim-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:10px}
+.br-sim-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #e5e7eb;font-size:12px}
+.br-sim-row:last-child{border-bottom:none;font-weight:700;font-size:13px}
 #share-badge{display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;z-index:8000;pointer-events:none}
 #share-badge.show{display:block}
 .pl-tbl tr.r2[draggable]{cursor:grab}
@@ -220,6 +230,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
       <button class="tab" onclick="switchTab('pl')">손익계산서</button>
       <button class="tab" onclick="switchTab('cashflow')">현금흐름</button>
       <button class="tab" onclick="switchTab('deposits')" id="tab-deposits-btn">🏠 전대보증금</button>
+      <button class="tab" onclick="switchTab('branches')" id="tab-branches-btn">🏢 지점현황</button>
       <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
       <button class="tab" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
       <button class="tab" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
@@ -277,6 +288,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
     </div>
     <div id="tab-cashflow" style="display:none"><div id="cashflow-content"></div></div>
     <div id="tab-deposits" style="display:none"><div id="deposits-content"></div></div>
+    <div id="tab-branches" style="display:none"><div id="branches-content"></div></div>
 
     <!-- 학습데이터 -->
     <div id="tab-learn" style="display:none">
@@ -695,7 +707,7 @@ function loadState(){
       return s;
     }
   }
-  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[],forecast:{},deposits:[]};
+  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[],forecast:{},deposits:[],branches:[],exitPlan:[]};
 }
 let ST=loadState();
 let curCo=null, editCoId=null, curTab='ledger';
@@ -771,6 +783,8 @@ async function saveToFirestore(){
       intercompanyCats:ST.intercompanyCats||[],
       forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
       deposits:        ST.deposits||[],
+      branches:        ST.branches||[],
+      exitPlan:        ST.exitPlan||[],
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -903,6 +917,8 @@ async function loadFromFirestore(preloadedSnap){
     ST.intercompanyCats=m.intercompanyCats||[];
     ST.forecast        =m.forecast        ||{};
     ST.deposits        =m.deposits        ||[];
+    ST.branches        =m.branches        ||[];
+    ST.exitPlan        =m.exitPlan        ||[];
     ST._metaMonths =(m.months     ||[]).sort();
 
     // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
@@ -2091,10 +2107,10 @@ function selectCo(id){
 async function switchTab(t){
   if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
-  ['ledger','monthly','pl','cashflow','deposits','forecast','learn','import','settings'].forEach(id=>{
+  ['ledger','monthly','pl','cashflow','deposits','branches','forecast','learn','import','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
   });
-  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','deposits','forecast','learn','import','settings'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','deposits','branches','forecast','learn','import','settings'][i]===t));
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
@@ -2118,6 +2134,7 @@ function renderCurTab(){
   else if(curTab==='cashflow')renderCashflow();
   else if(curTab==='learn')renderLearn();
   else if(curTab==='deposits')renderDeposits();
+  else if(curTab==='branches')renderBranches();
   else if(curTab==='forecast')renderForecast();
   else if(curTab==='settings')renderSettings();
 }
@@ -4370,6 +4387,139 @@ function renderForecast(){
     _fcSection='pnl';
     renderForecast();
   }
+}
+
+// ══════════════════════════════════════════════
+// 지점현황
+// ══════════════════════════════════════════════
+function renderBranches(){
+  const branches=ST.branches||[];
+  const exitPlan=ST.exitPlan||[];
+
+  // exitPlan을 id 기준으로 맵으로 만들기 (#14 → entry)
+  const epMap={};
+  exitPlan.forEach(e=>{ epMap[e.id]=e; });
+
+  // 각 지점에 퇴거계획 정보 병합
+  const merged=branches.map(b=>{
+    const ep=epMap[b.id]||null;
+    return{
+      ...b,
+      exitMonth: ep?ep.exitMonth:'',
+      keyMoney:  ep?Number(ep.keyMoney)||0:0,
+      epStatus:  ep?ep.status:'',
+      notes:     ep?ep.notes:'',
+    };
+  });
+
+  // 퇴거계획에는 있지만 지점현황에 없는 항목도 추가 (양도 또는 만료지점)
+  exitPlan.forEach(ep=>{
+    if(!branches.find(b=>b.id===ep.id)){
+      merged.push({
+        id:ep.id, name:ep.id, rooms:0,
+        interior:0, deposit:Number(ep.deposit)||0,
+        rent:Number(ep.rent)||0, mgmtFee:Number(ep.mgmtFee)||0,
+        exitMonth:ep.exitMonth, keyMoney:Number(ep.keyMoney)||0,
+        epStatus:ep.status, notes:ep.notes,
+      });
+    }
+  });
+
+  const statusFilter=document.getElementById('br-f-status')?.value||'';
+  const filtered=statusFilter?merged.filter(b=>{
+    const s=b.epStatus||'운영중';
+    if(statusFilter==='운영중') return !b.epStatus||b.epStatus==='운영중';
+    return s===statusFilter;
+  }):merged;
+
+  // 요약 계산
+  const operating=merged.filter(b=>!b.epStatus||b.epStatus==='운영중'||b.epStatus==='');
+  const exiting=merged.filter(b=>b.epStatus&&b.epStatus!=='운영중'&&b.epStatus!=='완료');
+  const completed=merged.filter(b=>b.epStatus==='완료');
+  const totalDeposit=operating.reduce((s,b)=>s+b.deposit,0);
+  // 퇴거 시 회수 예상: 보증금 + 권리금
+  const exitDeposit=exiting.reduce((s,b)=>s+b.deposit,0);
+  const exitKeyMoney=exiting.reduce((s,b)=>s+b.keyMoney,0);
+  const exitMonthlySave=exiting.reduce((s,b)=>s+(b.rent||0)+(b.mgmtFee||0),0);
+
+  const statusBadge=(ep)=>{
+    if(!ep)return'<span class="br-badge 운영중">운영중</span>';
+    const map={'완료':'퇴거완료','확정':'확정','진행중':'진행중','진행중(미정)':'진행중','미정':'퇴거예정','운영중':'운영중'};
+    const cls=map[ep]||'퇴거예정';
+    return`<span class="br-badge ${cls}">${ep||'운영중'}</span>`;
+  };
+
+  document.getElementById('branches-content').innerHTML=`
+  <div class="summary" style="grid-template-columns:repeat(4,1fr)">
+    <div class="sc"><div class="sc-l">운영중 지점</div><div class="sc-v">${operating.length}개</div></div>
+    <div class="sc"><div class="sc-l">퇴거 진행중</div><div class="sc-v" style="color:#854d0e">${exiting.length}개</div></div>
+    <div class="sc"><div class="sc-l">운영중 보증금 합계</div><div class="sc-v">${fmt(totalDeposit)}</div></div>
+    <div class="sc"><div class="sc-l">퇴거 완료</div><div class="sc-v" style="color:#475569">${completed.length}개</div></div>
+  </div>
+
+  ${exiting.length>0?`
+  <div class="br-sim-card">
+    <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#166534">💰 퇴거 시 회수 예상 (${exiting.length}개 지점)</div>
+    <div class="br-sim-row"><span>보증금 회수</span><span class="g">${fmt(exitDeposit)}</span></div>
+    <div class="br-sim-row"><span>권리금 수입</span><span class="g">${fmt(exitKeyMoney)}</span></div>
+    <div class="br-sim-row"><span>월 고정비 절감</span><span class="g">${fmt(exitMonthlySave)}/월</span></div>
+    <div class="br-sim-row" style="margin-top:4px;padding-top:8px;border-top:2px solid #86efac">
+      <span>즉시 현금 확보 예상</span><span class="g" style="font-size:15px">${fmt(exitDeposit+exitKeyMoney)}</span>
+    </div>
+  </div>`:''}
+
+  <div class="toolbar">
+    <select id="br-f-status" onchange="renderBranches()" style="width:110px">
+      <option value="">전체 상태</option>
+      <option value="운영중">운영중</option>
+      <option value="확정">확정</option>
+      <option value="진행중">진행중</option>
+      <option value="완료">완료</option>
+    </select>
+    <span style="font-size:11px;color:#888;margin-left:4px">총 ${filtered.length}개 지점</span>
+    <div class="ml-a">
+      <span style="font-size:11px;color:#aaa">구글시트에서 자동 동기화됩니다</span>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <div style="overflow:auto;max-height:calc(100vh - 360px)">
+    <table style="table-layout:fixed;font-size:12px;border-collapse:collapse;width:100%">
+      <colgroup>
+        <col style="width:70px"><col style="width:55px"><col style="width:90px">
+        <col style="width:80px"><col style="width:75px"><col style="width:90px">
+        <col style="width:90px"><col style="width:80px"><col style="width:90px"><col style="width:100px">
+      </colgroup>
+      <thead><tr style="background:#f0f0ee">
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">지점</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">객실수</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">보증금</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">월세</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">관리비</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">인테리어</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">권리금</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">퇴거예정월</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">상태</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px">비고</th>
+      </tr></thead>
+      <tbody>
+      ${filtered.length===0?`<tr><td colspan="10" style="padding:20px;text-align:center;color:#aaa">데이터 없음 — 구글시트에서 동기화가 필요합니다</td></tr>`
+      :filtered.map(b=>`<tr>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;font-weight:600">${b.id}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.rooms||''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.deposit?fmt(b.deposit):''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.rent?fmt(b.rent):''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.mgmtFee?fmt(b.mgmtFee):''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.interior?fmt(b.interior):''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.keyMoney?fmt(b.keyMoney):''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.exitMonth||''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${statusBadge(b.epStatus)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;max-width:150px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${(b.notes||'').replace(/"/g,'&quot;')}">${b.notes||''}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════
