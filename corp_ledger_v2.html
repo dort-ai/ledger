@@ -129,7 +129,12 @@ td.copy-flash{background:#c8f0c8!important}
 .cf-nm-click{cursor:pointer}
 .cf-nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
 .ro-hide{display:none!important}
-body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn{display:none!important}
+body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn,body.read-only #btn-dep-add,body.read-only .dep-edit-btn,body.read-only .dep-del-btn{display:none!important}
+/* 전대보증금 상태 뱃지 */
+.dep-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.dep-badge.보유중{background:#dcfce7;color:#166534}
+.dep-badge.반환중{background:#fef9c3;color:#854d0e}
+.dep-badge.반환완료{background:#f1f5f9;color:#475569}
 #share-badge{display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;z-index:8000;pointer-events:none}
 #share-badge.show{display:block}
 .pl-tbl tr.r2[draggable]{cursor:grab}
@@ -214,6 +219,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
       <button class="tab" onclick="switchTab('monthly')">월별</button>
       <button class="tab" onclick="switchTab('pl')">손익계산서</button>
       <button class="tab" onclick="switchTab('cashflow')">현금흐름</button>
+      <button class="tab" onclick="switchTab('deposits')" id="tab-deposits-btn">🏠 전대보증금</button>
       <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
       <button class="tab" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
       <button class="tab" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
@@ -270,6 +276,7 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
       <div id="pl-content"></div>
     </div>
     <div id="tab-cashflow" style="display:none"><div id="cashflow-content"></div></div>
+    <div id="tab-deposits" style="display:none"><div id="deposits-content"></div></div>
 
     <!-- 학습데이터 -->
     <div id="tab-learn" style="display:none">
@@ -410,6 +417,46 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 전대보증금 모달 -->
+<div class="overlay" id="dep-ov" onclick="bgClose(event,'dep-ov')">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-hd"><span class="modal-title" id="dep-ov-title">보증금 추가</span><button class="close-btn" onclick="closeOv('dep-ov')">×</button></div>
+    <div class="g2" style="margin-bottom:7px">
+      <div class="field"><label>호점 *</label><input id="dep-listing" placeholder="#51_Sinchon_1BR" style="width:100%"></div>
+      <div class="field"><label>이체이름 *</label><input id="dep-guest" placeholder="게스트명" style="width:100%"></div>
+    </div>
+    <div class="g2" style="margin-bottom:7px">
+      <div class="field"><label>입금일</label><input id="dep-indate" type="date" style="width:100%"></div>
+      <div class="field"><label>보증금 (원) *</label><input id="dep-amount" type="number" placeholder="0" style="width:100%" oninput="calcDepReturn()"></div>
+    </div>
+    <div class="g2" style="margin-bottom:7px">
+      <div class="field"><label>체크아웃</label><input id="dep-checkout" placeholder="25년 12월" style="width:100%"></div>
+      <div class="field"><label>상태</label>
+        <select id="dep-status" style="width:100%" onchange="toggleDepReturnFields()">
+          <option value="보유중">보유중</option>
+          <option value="반환중">반환중</option>
+          <option value="반환완료">반환완료</option>
+        </select>
+      </div>
+    </div>
+    <div id="dep-return-fields">
+      <div class="g2" style="margin-bottom:7px">
+        <div class="field"><label>반환일자</label><input id="dep-retdate" type="date" style="width:100%"></div>
+        <div class="field"><label>보증금 차감 (원)</label><input id="dep-deduct" type="number" placeholder="0" style="width:100%" oninput="calcDepReturn()"></div>
+      </div>
+      <div class="g2" style="margin-bottom:7px">
+        <div class="field"><label>송금수수료 (원)</label><input id="dep-fee" type="number" placeholder="0" style="width:100%" oninput="calcDepReturn()"></div>
+        <div class="field"><label>반환금액 (원)</label><input id="dep-retamt" type="number" placeholder="자동계산" style="width:100%;background:#f9f9f9"></div>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:10px"><label>비고</label><input id="dep-note" style="width:100%"></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn" onclick="closeOv('dep-ov')">취소</button>
+      <button class="btn btn-p" onclick="saveDepositForm()">저장</button>
     </div>
   </div>
 </div>
@@ -648,7 +695,7 @@ function loadState(){
       return s;
     }
   }
-  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[],forecast:{}};
+  return{companies:[],rows:[],accounts:{},wallets:{},fixedRules:[],learnUploads:[],intercompanyCats:[],forecast:{},deposits:[]};
 }
 let ST=loadState();
 let curCo=null, editCoId=null, curTab='ledger';
@@ -723,6 +770,7 @@ async function saveToFirestore(){
       shareTokens:     ST.shareTokens||{},
       intercompanyCats:ST.intercompanyCats||[],
       forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
+      deposits:        ST.deposits||[],
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -854,6 +902,7 @@ async function loadFromFirestore(preloadedSnap){
     ST.shareTokens     =m.shareTokens     ||{};
     ST.intercompanyCats=m.intercompanyCats||[];
     ST.forecast        =m.forecast        ||{};
+    ST.deposits        =m.deposits        ||[];
     ST._metaMonths =(m.months     ||[]).sort();
 
     // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
@@ -2042,10 +2091,10 @@ function selectCo(id){
 async function switchTab(t){
   if(t!=='pl'&&_plReordering){_plReordering=false;}
   curTab=t;
-  ['ledger','monthly','pl','cashflow','forecast','learn','import','settings'].forEach(id=>{
+  ['ledger','monthly','pl','cashflow','deposits','forecast','learn','import','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
   });
-  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','forecast','learn','import','settings'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','deposits','forecast','learn','import','settings'][i]===t));
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
@@ -2068,6 +2117,7 @@ function renderCurTab(){
   else if(curTab==='pl')renderPL();
   else if(curTab==='cashflow')renderCashflow();
   else if(curTab==='learn')renderLearn();
+  else if(curTab==='deposits')renderDeposits();
   else if(curTab==='forecast')renderForecast();
   else if(curTab==='settings')renderSettings();
 }
@@ -4320,6 +4370,180 @@ function renderForecast(){
     _fcSection='pnl';
     renderForecast();
   }
+}
+
+// ══════════════════════════════════════════════
+// 전대보증금 대장
+// ══════════════════════════════════════════════
+let _depEditId=null;
+
+function renderDeposits(){
+  const deps=ST.deposits||[];
+  const listingFilter=document.getElementById('dep-f-listing')?.value||'';
+  const statusFilter=document.getElementById('dep-f-status')?.value||'';
+
+  const filtered=deps.filter(d=>{
+    if(listingFilter&&d.호점!==listingFilter)return false;
+    if(statusFilter&&d.상태!==statusFilter)return false;
+    return true;
+  });
+
+  const total=deps.reduce((s,d)=>s+num(d.보증금),0);
+  const remain=deps.filter(d=>d.상태==='보유중').reduce((s,d)=>s+num(d.보증금),0);
+
+  const listings=[...new Set(deps.map(d=>d.호점).filter(Boolean))].sort();
+
+  document.getElementById('deposits-content').innerHTML=`
+    <div class="summary" style="grid-template-columns:repeat(2,1fr);max-width:480px;margin-bottom:12px">
+      <div class="sc"><div class="sc-l">보증금 총액</div><div class="sc-v">${fmt(total)}원</div></div>
+      <div class="sc"><div class="sc-l">잔여보증금 (보유중)</div><div class="sc-v g">${fmt(remain)}원</div></div>
+    </div>
+    <div class="toolbar">
+      <select id="dep-f-listing" onchange="renderDeposits()" style="min-width:120px">
+        <option value="">전체 호점</option>
+        ${listings.map(l=>`<option value="${l}" ${listingFilter===l?'selected':''}>${l}</option>`).join('')}
+      </select>
+      <select id="dep-f-status" onchange="renderDeposits()" style="min-width:100px">
+        <option value="">전체 상태</option>
+        <option value="보유중" ${statusFilter==='보유중'?'selected':''}>보유중</option>
+        <option value="반환중" ${statusFilter==='반환중'?'selected':''}>반환중</option>
+        <option value="반환완료" ${statusFilter==='반환완료'?'selected':''}>반환완료</option>
+      </select>
+      <span style="font-size:11px;color:#888">${filtered.length}건</span>
+      <div class="ml-a">
+        <button class="btn btn-p" id="btn-dep-add" onclick="openDepositForm(null)">＋ 추가</button>
+        <button class="btn" onclick="exportDepositsExcel()">📥 엑셀</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <div style="overflow:auto;max-height:calc(100vh - 280px)">
+        <table style="width:100%;table-layout:fixed">
+          <thead>
+            <tr style="background:#f0f0ee;font-size:10px;color:#444">
+              <th style="padding:5px 6px;text-align:left;width:120px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">호점</th>
+              <th style="padding:5px 6px;text-align:left;width:130px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">이체이름</th>
+              <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">상태</th>
+              <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">보증금</th>
+              <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">입금일</th>
+              <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">체크아웃</th>
+              <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환일자</th>
+              <th style="padding:5px 6px;text-align:right;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">차감</th>
+              <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환금액</th>
+              <th style="padding:5px 6px;text-align:right;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">수수료</th>
+              <th style="padding:5px 6px;text-align:left;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">비고</th>
+              <th style="padding:5px 6px;text-align:center;width:60px;border-bottom:2px solid #c0c0c0"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length===0?`<tr><td colspan="12" style="text-align:center;padding:24px;color:#aaa;font-size:12px">데이터가 없습니다</td></tr>`
+            :filtered.sort((a,b)=>(b.입금일||'').localeCompare(a.입금일||'')).map(d=>`
+              <tr style="border-bottom:1px solid #ebebeb;font-size:12px" onmouseover="this.style.background='#fafaf8'" onmouseout="this.style.background=''">
+                <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.호점||''}</td>
+                <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.이체이름||''}</td>
+                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb"><span class="dep-badge ${d.상태||'보유중'}">${d.상태||'보유중'}</span></td>
+                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${fmt(d.보증금)}</td>
+                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.입금일||''}</td>
+                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.체크아웃||''}</td>
+                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.반환일자||''}</td>
+                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.보증금차감?fmt(d.보증금차감):''}</td>
+                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.반환금액?fmt(d.반환금액):''}</td>
+                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.송금수수료?fmt(d.송금수수료):''}</td>
+                <td style="padding:4px 6px;border-right:1px solid #ebebeb;color:#666">${d.비고||''}</td>
+                <td style="padding:4px 6px;text-align:center">
+                  <button class="btn-sm dep-edit-btn" onclick="openDepositForm('${d.id}')">수정</button>
+                  <button class="btn-sm btn-d dep-del-btn" onclick="deleteDeposit('${d.id}')">삭제</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function openDepositForm(id){
+  _depEditId=id;
+  const d=id?(ST.deposits||[]).find(x=>x.id===id):null;
+  document.getElementById('dep-ov-title').textContent=id?'보증금 수정':'보증금 추가';
+  document.getElementById('dep-listing').value=d?.호점||'';
+  document.getElementById('dep-guest').value=d?.이체이름||'';
+  document.getElementById('dep-indate').value=d?.입금일||'';
+  document.getElementById('dep-amount').value=d?.보증금||'';
+  document.getElementById('dep-checkout').value=d?.체크아웃||'';
+  document.getElementById('dep-status').value=d?.상태||'보유중';
+  document.getElementById('dep-retdate').value=d?.반환일자||'';
+  document.getElementById('dep-deduct').value=d?.보증금차감||'';
+  document.getElementById('dep-fee').value=d?.송금수수료||'';
+  document.getElementById('dep-retamt').value=d?.반환금액||'';
+  document.getElementById('dep-note').value=d?.비고||'';
+  toggleDepReturnFields();
+  document.getElementById('dep-ov').classList.add('show');
+}
+
+function toggleDepReturnFields(){
+  const s=document.getElementById('dep-status').value;
+  document.getElementById('dep-return-fields').style.display=s==='보유중'?'none':'';
+}
+
+function calcDepReturn(){
+  const amt=num(document.getElementById('dep-amount').value)||0;
+  const ded=num(document.getElementById('dep-deduct').value)||0;
+  const fee=num(document.getElementById('dep-fee').value)||0;
+  document.getElementById('dep-retamt').value=amt-ded-fee||'';
+}
+
+function saveDepositForm(){
+  const listing=document.getElementById('dep-listing').value.trim();
+  const guest=document.getElementById('dep-guest').value.trim();
+  const amount=num(document.getElementById('dep-amount').value);
+  if(!listing||!guest||!amount){alert('호점, 이체이름, 보증금은 필수입니다.');return;}
+  const status=document.getElementById('dep-status').value;
+  const dep={
+    id:_depEditId||uid(),
+    호점:listing,
+    이체이름:guest,
+    입금일:document.getElementById('dep-indate').value,
+    보증금:amount,
+    체크아웃:document.getElementById('dep-checkout').value.trim(),
+    상태:status,
+    반환일자:document.getElementById('dep-retdate').value,
+    보증금차감:num(document.getElementById('dep-deduct').value)||0,
+    반환금액:num(document.getElementById('dep-retamt').value)||0,
+    송금수수료:num(document.getElementById('dep-fee').value)||0,
+    비고:document.getElementById('dep-note').value.trim(),
+  };
+  if(!ST.deposits)ST.deposits=[];
+  if(_depEditId){
+    const idx=ST.deposits.findIndex(x=>x.id===_depEditId);
+    if(idx>=0)ST.deposits[idx]=dep;
+  }else{
+    ST.deposits.push(dep);
+  }
+  save();
+  closeOv('dep-ov');
+  renderDeposits();
+}
+
+function deleteDeposit(id){
+  if(!confirm('이 보증금 항목을 삭제할까요?'))return;
+  ST.deposits=(ST.deposits||[]).filter(x=>x.id!==id);
+  save();
+  renderDeposits();
+}
+
+function exportDepositsExcel(){
+  const deps=ST.deposits||[];
+  if(!deps.length){alert('내보낼 데이터가 없습니다.');return;}
+  const headers=['호점','이체이름','상태','보증금','입금일','체크아웃','반환일자','보증금차감','반환금액','송금수수료','비고'];
+  const data=deps.sort((a,b)=>(b.입금일||'').localeCompare(a.입금일||'')).map(d=>[
+    d.호점||'',d.이체이름||'',d.상태||'',num(d.보증금)||0,
+    d.입금일||'',d.체크아웃||'',d.반환일자||'',
+    num(d.보증금차감)||0,num(d.반환금액)||0,num(d.송금수수료)||0,d.비고||''
+  ]);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...data]);
+  ws['!cols']=[{wch:14},{wch:18},{wch:10},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:10},{wch:24}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'전대보증금');
+  XLSX.writeFile(wb,`전대보증금대장.xlsx`);
 }
 
 // 억/만 단위 포맷
