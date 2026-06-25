@@ -4396,13 +4396,16 @@ function renderBranches(){
   const branches=ST.branches||[];
   const exitPlan=ST.exitPlan||[];
 
+  // ID 정규화: '#14 Hongdae' → '#14', ' #14 ' → '#14'
+  function normBrId(s){ return String(s||'').trim().replace(/\s+/g,''); }
+
   // exitPlan을 id 기준으로 맵으로 만들기 (#14 → entry)
   const epMap={};
-  exitPlan.forEach(e=>{ epMap[e.id]=e; });
+  exitPlan.forEach(e=>{ epMap[normBrId(e.id)]=e; });
 
   // 각 지점에 퇴거계획 정보 병합
   const merged=branches.map(b=>{
-    const ep=epMap[b.id]||null;
+    const ep=epMap[normBrId(b.id)]||null;
     return{
       ...b,
       exitMonth: ep?ep.exitMonth:'',
@@ -4414,7 +4417,7 @@ function renderBranches(){
 
   // 퇴거계획에는 있지만 지점현황에 없는 항목도 추가 (양도 또는 만료지점)
   exitPlan.forEach(ep=>{
-    if(!branches.find(b=>b.id===ep.id)){
+    if(!branches.find(b=>normBrId(b.id)===normBrId(ep.id))){
       merged.push({
         id:ep.id, name:ep.id, rooms:0,
         interior:0, deposit:Number(ep.deposit)||0,
