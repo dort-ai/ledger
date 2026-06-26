@@ -4433,16 +4433,19 @@ function renderBranches(){
     return '진행예정';
   }
 
+  // ID에서 숫자 추출 (#14 → 14, #64,65 → 64)
+  function brNum(id){ const m=String(id||'').match(/#?(\d+)/); return m?parseInt(m[1]):9999; }
+
   // 정렬 우선순위: 운영중→확정→진행중→진행예정→완료
   const catOrder={운영중:0,확정:1,진행중:2,진행예정:3,완료:4};
   merged.sort((a,b)=>{
     const ca=statusCat(a.rawStatus), cb=statusCat(b.rawStatus);
     const pa=catOrder[ca]??5, pb=catOrder[cb]??5;
     if(pa!==pb) return pa-pb;
-    if(ca==='운영중') return (a.id||'').localeCompare(b.id||'','ko');
+    if(ca==='운영중') return brNum(a.id)-brNum(b.id);
     const ma=a.exitMonth||'9999', mb=b.exitMonth||'9999';
     if(ma!==mb) return ma.localeCompare(mb);
-    return (a.id||'').localeCompare(b.id||'','ko');
+    return brNum(a.id)-brNum(b.id);
   });
 
   // 필터 (탭 전환 시 초기화 방지 위해 외부 변수로 보존)
