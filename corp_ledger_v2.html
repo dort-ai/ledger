@@ -3667,6 +3667,8 @@ const CASH_ITEMS = [
 let _fcYear = FORECAST_YEAR_KEY();
 let _fcCompare = false;
 let _fcSection = 'pnl'; // 'pnl' | 'cash' | 'events'
+let _fcExitApplied = false;
+let _fcExitDelta = {}; // {pnl:{key:{month:amt}}, cash:{key:{month:amt}}}
 
 function ensureForecast(cid, year){
   if(!ST.forecast) ST.forecast={};
@@ -3750,6 +3752,59 @@ function applyEventToForecast(event){
   renderForecast();
 }
 
+// ── 퇴거계획 시뮬레이션 오버레이 ──────────────────
+function statusCatGlobal(raw){
+  if(!raw||raw==='운영중') return '운영중';
+  if(raw==='완료') return '완료';
+  if(raw==='확정') return '확정';
+  if(raw.includes('진행중')) return '진행중';
+  return '운영중';
+}
+
+function buildExitDelta(year){
+  const d={pnl:{},cash:{}};
+  function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; }
+  // 현금 섹션에서 보증금 회수 항목 키 찾기 (cfMap 동적 탐색)
+  const cfMap=getCfMap(curCo||'');
+  let depKey=null;
+  for(const sec of cfMap){
+    for(const it of sec.items){
+      if(it.keys&&(it.keys.includes('보증금반환')||it.keys.includes('계약금반환'))){
+        depKey='cf::'+it.label; break;
+      }
+    }
+    if(depKey) break;
+  }
+  (ST.exitPlan||[]).forEach(ep=>{
+    if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
+    const parts=ep.exitMonth.split('-');
+    const ey=Number(parts[0]), em=Number(parts[1]);
+    if(ey!==Number(year)) return;
+    const b=(ST.branches||[]).find(x=>x.id===ep.id);
+    if(!b) return;
+    const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
+    const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
+    for(let m=em;m<=12;m++){
+      if(rent>0) add('pnl','매출원가::지급임차료',m,-rent);
+      if(mgmt>0) add('pnl','매출원가::건물관리비',m,-mgmt);
+    }
+    if(dep>0&&depKey) add('cash',depKey,em,dep);
+    if(key>0) add('pnl','영업외수익::기타수익',em,key);
+  });
+  return d;
+}
+
+function getExitPnlDelta(month){
+  if(!_fcExitApplied||!_fcExitDelta.pnl) return 0;
+  return Object.values(_fcExitDelta.pnl).reduce((s,mobj)=>s+(mobj[month]||0),0);
+}
+
+function toggleFcExit(){
+  _fcExitApplied=!_fcExitApplied;
+  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
+  renderForecast();
+}
+
 // 테이블 렌더링
 // ── 추정 그리드 상태 ──────────────────────────
 let _fcAnchor={ri:-1,mi:-1};  // 선택 셀 (ri=items 인덱스, mi=월 1~12)
@@ -3826,7 +3881,8 @@ function getPnlForecastNet(cid, year, month){
     if(cid==='__all__') return s+ST.companies.reduce((ss,c)=>ss+getForecastVal(c.id,year,'pnl',k,month),0);
     return s+getForecastVal(cid,year,'pnl',k,month);
   },0);
-  return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
+  const net=sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
+  return _fcExitApplied ? net+getExitPnlDelta(month) : net;
 }
 
 // actFn(item, month) → number(실적값) | null(실적 없는 행)
@@ -3848,9 +3904,17 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       const act=actFn(it,month);
       if(act!==null) return act;
     }
+    let base;
     if(cid==='__all__')
-      return ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
-    return getForecastVal(cid,year,section,k,month);
+      base=ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
+    else
+      base=getForecastVal(cid,year,section,k,month);
+    // 퇴거계획 오버레이: 미래월에만 적용
+    if(_fcExitApplied&&!isPastFcMonth(year,month)){
+      const d=_fcExitDelta[section]?.[k]?.[month];
+      if(d) base+=d;
+    }
+    return base;
   }
 
   // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
@@ -4346,6 +4410,7 @@ function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
   const cid=curCo; const year=_fcYear;
   ensureForecast(cid,year);
+  if(_fcExitApplied) _fcExitDelta=buildExitDelta(year);
 
   // 연간 요약 계산
   const annMat=(items,section)=>{
@@ -4383,6 +4448,7 @@ function renderForecast(){
     <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
       <button onclick="_fcSection='pnl';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='pnl'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='pnl'?'#3a6bcc':'#fff'};color:${_fcSection==='pnl'?'#fff':'#666'};font-size:12px;cursor:pointer">손익 추정</button>
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
+      <button onclick="toggleFcExit()" style="padding:5px 14px;border:1px solid ${_fcExitApplied?'#166534':'#ddd'};border-radius:20px;background:${_fcExitApplied?'#dcfce7':'#fff'};color:${_fcExitApplied?'#166534':'#666'};font-size:12px;cursor:pointer;font-weight:${_fcExitApplied?'700':'400'}">${_fcExitApplied?'✓ 퇴거계획 반영 중':'🏢 퇴거계획 반영'}</button>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
         <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
