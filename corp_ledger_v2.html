@@ -129,7 +129,7 @@ td.copy-flash{background:#c8f0c8!important}
 .cf-nm-click{cursor:pointer}
 .cf-nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
 .ro-hide{display:none!important}
-body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn,body.read-only #btn-dep-add,body.read-only .dep-edit-btn,body.read-only .dep-del-btn{display:none!important}
+body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn,body.read-only #btn-dep-add,body.read-only .dep-edit-btn,body.read-only .dep-del-btn,body.read-only .br-edit-btn{display:none!important}
 /* 전대보증금 상태 뱃지 */
 .dep-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
 .dep-badge.보유중{background:#dcfce7;color:#166534}
@@ -434,6 +434,32 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 </div>
 
 <!-- 전대보증금 모달 -->
+<!-- 지점 퇴거정보 수정 모달 -->
+<div class="overlay" id="br-edit-ov" onclick="bgClose(event,'br-edit-ov')">
+  <div class="modal" style="max-width:340px">
+    <div class="modal-hd"><span class="modal-title" id="br-edit-title">퇴거 정보 수정</span><button class="close-btn" onclick="closeOv('br-edit-ov')">×</button></div>
+    <p style="font-size:12px;color:#888;margin-bottom:12px" id="br-edit-name"></p>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="field"><label>퇴거예정월 (YYYY-MM)</label><input id="br-edit-month" placeholder="2026-07" style="width:100%"></div>
+      <div class="field"><label>상태</label>
+        <select id="br-edit-status" style="width:100%">
+          <option value="">운영중</option>
+          <option value="확정">확정</option>
+          <option value="진행중">진행중</option>
+          <option value="진행중(미정)">진행중(미정)</option>
+          <option value="진행예정">진행예정</option>
+          <option value="완료">완료</option>
+        </select>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:12px"><label>비고</label><input id="br-edit-notes" style="width:100%"></div>
+    <div style="display:flex;gap:7px;justify-content:flex-end">
+      <button class="btn" onclick="closeOv('br-edit-ov')">취소</button>
+      <button class="btn btn-p" onclick="saveBranchEdit()">저장</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="dep-ov" onclick="bgClose(event,'dep-ov')">
   <div class="modal" style="max-width:460px">
     <div class="modal-hd"><span class="modal-title" id="dep-ov-title">보증금 추가</span><button class="close-btn" onclick="closeOv('dep-ov')">×</button></div>
@@ -4550,7 +4576,7 @@ function renderBranches(){
       <colgroup>
         <col style="width:70px"><col style="width:45px"><col style="width:90px">
         <col style="width:80px"><col style="width:70px"><col style="width:85px">
-        <col style="width:85px"><col style="width:75px"><col style="width:75px"><col style="width:110px">
+        <col style="width:85px"><col style="width:75px"><col style="width:75px"><col style="width:95px"><col style="width:40px">
       </colgroup>
       <thead><tr style="background:#f0f0ee">
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">지점</th>
@@ -4563,6 +4589,7 @@ function renderBranches(){
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">퇴거월</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">상태</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px">비고</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px"></th>
       </tr></thead>
       <tbody>
       ${filtered.length===0
@@ -4578,11 +4605,48 @@ function renderBranches(){
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.exitMonth||''}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${statusBadge(b.rawStatus)}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${(b.notes||'').replace(/"/g,'&quot;')}">${b.notes||''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center"><button class="btn-sm br-edit-btn" onclick="openBranchEdit('${b.id}')">✏️</button></td>
       </tr>`).join('')}
       </tbody>
     </table>
     </div>
   </div>`;
+}
+
+// ══════════════════════════════════════════════
+// 지점 퇴거정보 수정
+// ══════════════════════════════════════════════
+let _brEditId=null;
+function openBranchEdit(branchId){
+  _brEditId=branchId;
+  const ep=(ST.exitPlan||[]).find(e=>e.id===branchId)||null;
+  const b=(ST.branches||[]).find(x=>x.id===branchId)||null;
+  document.getElementById('br-edit-title').textContent='퇴거 정보 수정';
+  document.getElementById('br-edit-name').textContent=b?b.name:branchId;
+  document.getElementById('br-edit-month').value=ep?.exitMonth||'';
+  document.getElementById('br-edit-status').value=ep?.status||'';
+  document.getElementById('br-edit-notes').value=ep?.notes||'';
+  document.getElementById('br-edit-ov').classList.add('show');
+}
+function saveBranchEdit(){
+  if(!_brEditId) return;
+  if(!ST.exitPlan) ST.exitPlan=[];
+  const idx=ST.exitPlan.findIndex(e=>e.id===_brEditId);
+  const entry={
+    id: _brEditId,
+    deposit: String((ST.branches||[]).find(b=>b.id===_brEditId)?.deposit||0),
+    rent:    String((ST.branches||[]).find(b=>b.id===_brEditId)?.rent||0),
+    mgmtFee: String((ST.branches||[]).find(b=>b.id===_brEditId)?.mgmtFee||0),
+    keyMoney: idx>=0?ST.exitPlan[idx].keyMoney:'0',
+    exitMonth: document.getElementById('br-edit-month').value.trim(),
+    status:    document.getElementById('br-edit-status').value,
+    notes:     document.getElementById('br-edit-notes').value.trim(),
+  };
+  if(idx>=0) ST.exitPlan[idx]=entry;
+  else ST.exitPlan.push(entry);
+  save();
+  closeOv('br-edit-ov');
+  renderBranches();
 }
 
 // ══════════════════════════════════════════════
