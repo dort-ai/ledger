@@ -143,6 +143,10 @@ body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,bod
 .br-badge.확정{background:#fce7f3;color:#9d174d}
 .br-badge.진행중{background:#fef3c7;color:#92400e}
 .br-sim-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:10px}
+.br-cell-input{border:none;border-bottom:1px solid #93c5fd;background:#eff6ff;padding:2px 3px;font-size:11px;border-radius:2px;box-sizing:border-box;font-family:inherit;width:100%}
+.br-cell-input:focus{outline:none;border-bottom:2px solid #3b82f6;background:#dbeafe}
+select.br-cell-input{border:1px solid #93c5fd;padding:1px 2px}
+tr.br-edit-row{background:#f8faff!important}
 .br-sim-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #e5e7eb;font-size:12px}
 .br-sim-row:last-child{border-bottom:none;font-weight:700;font-size:13px}
 #share-badge{display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;z-index:8000;pointer-events:none}
@@ -4518,6 +4522,17 @@ function renderBranches(){
   const filterOpts=['','운영중','확정','진행중','진행예정','완료']
     .map(v=>`<option value="${v}"${v===statusFilter?' selected':''}>${v||'전체 상태'}</option>`).join('');
 
+  // 셀 렌더러 (수정 모드 여부에 따라)
+  const numCell=(id,field,val)=>_brEditMode
+    ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${val||0}" style="text-align:right">`
+    :(val?fmt(val):'');
+  const txtCell=(id,field,val,align='left')=>_brEditMode
+    ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${(val||'').replace(/"/g,'&quot;')}" style="text-align:${align}">`
+    :(val||'');
+  const selCell=(id,field,val)=>_brEditMode
+    ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','확정','진행중','진행중(미정)','진행예정','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
+    :statusBadge(val);
+
   document.getElementById('branches-content').innerHTML=`
   <div class="summary" style="grid-template-columns:repeat(4,1fr)">
     <div class="sc"><div class="sc-l">운영중 지점</div><div class="sc-v">${operating.length}개</div></div>
@@ -4565,9 +4580,15 @@ function renderBranches(){
   </div>
 
   <div class="toolbar">
-    <select id="br-f-status" onchange="renderBranches()" style="width:100px">${filterOpts}</select>
+    <select id="br-f-status" onchange="renderBranches()" style="width:100px"${_brEditMode?' disabled':''}>${filterOpts}</select>
     <span style="font-size:11px;color:#888;margin-left:4px">총 ${filtered.length}개 지점</span>
-    <div class="ml-a"><span style="font-size:11px;color:#aaa">구글시트에서 동기화</span></div>
+    ${_brEditMode?`<span style="font-size:11px;color:#3b82f6;margin-left:8px;font-weight:600">✏️ 수정 모드 — 셀을 직접 편집하세요</span>`:''}
+    <div class="ml-a">
+      ${_brEditMode
+        ?`<button class="btn btn-p" onclick="saveBranchEdits()">💾 저장</button>
+           <button class="btn" onclick="cancelBrEditMode()" style="margin-left:4px">✖ 취소</button>`
+        :`<button class="btn br-edit-btn" onclick="toggleBrEditMode()">✏️ 수정 모드</button>`}
+    </div>
   </div>
 
   <div class="tbl-wrap">
@@ -4593,19 +4614,19 @@ function renderBranches(){
       </tr></thead>
       <tbody>
       ${filtered.length===0
-        ?`<tr><td colspan="10" style="padding:20px;text-align:center;color:#aaa">데이터 없음</td></tr>`
-        :filtered.map(b=>`<tr>
+        ?`<tr><td colspan="11" style="padding:20px;text-align:center;color:#aaa">데이터 없음</td></tr>`
+        :filtered.map(b=>`<tr${_brEditMode?' class="br-edit-row"':''}>
         <td style="padding:4px 6px;border:1px solid #ebebeb;font-weight:600">${b.id}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.rooms||''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.deposit?fmt(b.deposit):''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.rent?fmt(b.rent):''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.mgmtFee?fmt(b.mgmtFee):''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.interior?fmt(b.interior):''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.keyMoney?fmt(b.keyMoney):''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.exitMonth||''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${statusBadge(b.rawStatus)}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${(b.notes||'').replace(/"/g,'&quot;')}">${b.notes||''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center"><button class="btn-sm br-edit-btn" onclick="openBranchEdit('${b.id}')">✏️</button></td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${numCell(b.id,'deposit',b.deposit)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${numCell(b.id,'rent',b.rent)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${numCell(b.id,'mgmtFee',b.mgmtFee)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${numCell(b.id,'interior',b.interior)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${numCell(b.id,'keyMoney',b.keyMoney)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${txtCell(b.id,'exitMonth',b.exitMonth,'center')}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${selCell(b.id,'status',b.rawStatus)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;${_brEditMode?'':'overflow:hidden;white-space:nowrap;text-overflow:ellipsis'}" ${_brEditMode?'':` title="${(b.notes||'').replace(/"/g,'&quot;')}"`}>${txtCell(b.id,'notes',b.notes)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${_brEditMode?'':`<button class="btn-sm br-edit-btn" onclick="openBranchEdit('${b.id}')">✏️</button>`}</td>
       </tr>`).join('')}
       </tbody>
     </table>
@@ -4614,7 +4635,53 @@ function renderBranches(){
 }
 
 // ══════════════════════════════════════════════
-// 지점 퇴거정보 수정
+// 지점 수정 모드 (인라인 셀 편집)
+// ══════════════════════════════════════════════
+let _brEditMode=false;
+function toggleBrEditMode(){ _brEditMode=true; renderBranches(); }
+function cancelBrEditMode(){ _brEditMode=false; renderBranches(); }
+function saveBranchEdits(){
+  const inputs=[...document.querySelectorAll('.br-cell-input')];
+  const brFields=['deposit','rent','mgmtFee','interior'];
+  const epFields=['keyMoney','exitMonth','status','notes'];
+  const bChg={}, epChg={};
+  inputs.forEach(el=>{
+    const id=el.dataset.id, f=el.dataset.field, v=el.value;
+    if(brFields.includes(f)){ if(!bChg[id])bChg[id]={}; bChg[id][f]=v; }
+    if(epFields.includes(f)){ if(!epChg[id])epChg[id]={}; epChg[id][f]=v; }
+  });
+  // 지점 숫자 필드 반영
+  for(const [id,chg] of Object.entries(bChg)){
+    const idx=(ST.branches||[]).findIndex(b=>b.id===id);
+    if(idx>=0){
+      for(const [f,v] of Object.entries(chg)){
+        ST.branches[idx][f]=String(Number(String(v).replace(/[,원\s]/g,''))||0);
+      }
+    }
+  }
+  // 퇴거 계획 필드 반영
+  if(!ST.exitPlan) ST.exitPlan=[];
+  for(const [id,chg] of Object.entries(epChg)){
+    let idx=ST.exitPlan.findIndex(e=>e.id===id);
+    const hasVal=Object.entries(chg).some(([f,v])=>v!==''&&v!=='운영중'&&(f==='keyMoney'?Number(v)>0:true));
+    if(idx<0&&hasVal){
+      const b=(ST.branches||[]).find(x=>x.id===id)||{};
+      ST.exitPlan.push({id,deposit:String(b.deposit||0),rent:String(b.rent||0),mgmtFee:String(b.mgmtFee||0),keyMoney:'0',exitMonth:'',status:'',notes:''});
+      idx=ST.exitPlan.length-1;
+    }
+    if(idx>=0){
+      for(const [f,v] of Object.entries(chg)){
+        ST.exitPlan[idx][f]=f==='keyMoney'?String(Number(String(v).replace(/[,원\s]/g,''))||0):v;
+      }
+    }
+  }
+  save();
+  _brEditMode=false;
+  renderBranches();
+}
+
+// ══════════════════════════════════════════════
+// 지점 퇴거정보 수정 (구 모달 — 호환성 유지)
 // ══════════════════════════════════════════════
 let _brEditId=null;
 function openBranchEdit(branchId){
