@@ -3775,6 +3775,23 @@ function buildExitDelta(year){
     }
     if(depKey) break;
   }
+  // 25년 실적 기준 룸당 월평균 (임대매출·공과금·소모품 자동 반영)
+  const perRoomCats=[
+    {key:'매출액::임대매출',     cat1:'매출액',   cat2:'임대매출'},
+    {key:'매출원가::지점공과금', cat1:'매출원가', cat2:'지점공과금'},
+    {key:'매출원가::지점소모품', cat1:'매출원가', cat2:'지점소모품'},
+  ];
+  const totalRooms=(ST.branches||[])
+    .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
+    .reduce((s,b)=>s+Number(b.rooms||0),0);
+  const perRoom={};
+  if(totalRooms>0){
+    for(const c of perRoomCats){
+      let annualSum=0;
+      for(let m=1;m<=12;m++) annualSum+=getForecastActual('__all__',2025,c.cat1,c.cat2,m);
+      perRoom[c.key]=annualSum/12/totalRooms; // 룸당 월평균 (25년 기준, 공실률 자동 반영)
+    }
+  }
   (ST.exitPlan||[]).forEach(ep=>{
     if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
     const parts=ep.exitMonth.split('-');
@@ -3784,9 +3801,14 @@ function buildExitDelta(year){
     if(!b) return;
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
+    const rooms=Number(b.rooms||0);
     for(let m=em;m<=12;m++){
       if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
+      // 룸당 평균 기반 매출·비용 감소 (-perRoom*rooms: 수익은 감소, 비용은 덜 마이너스)
+      if(rooms>0) for(const c of perRoomCats){
+        if(perRoom[c.key]) add('pnl',c.key,m,-perRoom[c.key]*rooms);
+      }
     }
     if(dep>0&&depKey) add('cash',depKey,em,dep);
     if(key>0) add('pnl','영업외수익::기타수익',em,key);
