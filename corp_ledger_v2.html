@@ -4396,55 +4396,81 @@ function renderBranches(){
   const branches=ST.branches||[];
   const exitPlan=ST.exitPlan||[];
 
-  // ID 정규화: '#14 Hongdae' → '#14', ' #14 ' → '#14'
+  // ID 정규화
   function normBrId(s){ return String(s||'').trim().replace(/\s+/g,''); }
 
-  // exitPlan을 id 기준으로 맵으로 만들기 (#14 → entry)
+  // exitPlan 맵
   const epMap={};
   exitPlan.forEach(e=>{ epMap[normBrId(e.id)]=e; });
 
-  // 각 지점에 퇴거계획 정보 병합
+  // 병합
   const merged=branches.map(b=>{
     const ep=epMap[normBrId(b.id)]||null;
-    // sheetExitDate가 있으면 양도 또는 만료지점 시트에서 온 지점 → 기본 상태 '완료'
     const hasSheetExit=!!(b.sheetExitDate);
-    const exitMonth=ep&&ep.exitMonth ? ep.exitMonth : (b.sheetExitDate||'');
-    const epStatus=ep&&ep.status ? ep.status : (hasSheetExit?'완료':'');
+    const exitMonth=ep&&ep.exitMonth?ep.exitMonth:(b.sheetExitDate||'');
+    const rawStatus=ep&&ep.status?ep.status:(hasSheetExit?'완료':'');
     return{
       ...b,
+      deposit:   Number(b.deposit||0),
+      rent:      Number(b.rent||0),
+      mgmtFee:   Number(b.mgmtFee||0),
+      interior:  Number(b.interior||0),
+      rooms:     Number(b.rooms||0),
       exitMonth,
       keyMoney:  ep?Number(ep.keyMoney)||0:0,
-      epStatus,
+      rawStatus,
       notes:     ep?ep.notes:'',
     };
   });
 
-  // 양도지점 정리는 매칭 전용 — 별도 행 추가 안 함
-  // 완료된 지점은 Apps Script에서 '양도 또는 만료지점' 시트를 읽어 branches에 포함
+  // 상태 카테고리 분류 (rawStatus → 표준 카테고리)
+  function statusCat(raw){
+    if(!raw||raw==='운영중') return '운영중';
+    if(raw==='완료') return '완료';
+    if(raw==='확정') return '확정';
+    if(raw.includes('진행중')) return '진행중';
+    if(raw.includes('미정')||raw.includes('예정')) return '진행예정';
+    return '진행예정';
+  }
 
+  // 정렬 우선순위: 운영중→확정→진행중→진행예정→완료
+  const catOrder={운영중:0,확정:1,진행중:2,진행예정:3,완료:4};
+  merged.sort((a,b)=>{
+    const ca=statusCat(a.rawStatus), cb=statusCat(b.rawStatus);
+    const pa=catOrder[ca]??5, pb=catOrder[cb]??5;
+    if(pa!==pb) return pa-pb;
+    if(ca==='운영중') return (a.id||'').localeCompare(b.id||'','ko');
+    const ma=a.exitMonth||'9999', mb=b.exitMonth||'9999';
+    if(ma!==mb) return ma.localeCompare(mb);
+    return (a.id||'').localeCompare(b.id||'','ko');
+  });
+
+  // 필터 (탭 전환 시 초기화 방지 위해 외부 변수로 보존)
   const statusFilter=document.getElementById('br-f-status')?.value||'';
-  const filtered=statusFilter?merged.filter(b=>{
-    const s=b.epStatus||'운영중';
-    if(statusFilter==='운영중') return !b.epStatus||b.epStatus==='운영중';
-    return s===statusFilter;
-  }):merged;
+  const filtered=statusFilter
+    ?merged.filter(b=>statusCat(b.rawStatus)===statusFilter)
+    :merged;
 
-  // 요약 계산
-  const operating=merged.filter(b=>!b.epStatus||b.epStatus==='운영중'||b.epStatus==='');
-  const exiting=merged.filter(b=>b.epStatus&&b.epStatus!=='운영중'&&b.epStatus!=='완료');
-  const completed=merged.filter(b=>b.epStatus==='완료');
-  const totalDeposit=operating.reduce((s,b)=>s+b.deposit,0);
-  // 퇴거 시 회수 예상: 보증금 + 권리금
-  const exitDeposit=exiting.reduce((s,b)=>s+b.deposit,0);
-  const exitKeyMoney=exiting.reduce((s,b)=>s+b.keyMoney,0);
-  const exitMonthlySave=exiting.reduce((s,b)=>s+(b.rent||0)+(b.mgmtFee||0),0);
+  // 요약 (운영중만 보증금 합산, 퇴거 진행 = 확정+진행중+진행예정)
+  const operating=merged.filter(b=>statusCat(b.rawStatus)==='운영중');
+  const exiting  =merged.filter(b=>['확정','진행중','진행예정'].includes(statusCat(b.rawStatus)));
+  const completed=merged.filter(b=>statusCat(b.rawStatus)==='완료');
+  const totalDeposit  =operating.reduce((s,b)=>s+b.deposit,0);
+  const exitDeposit   =exiting.reduce((s,b)=>s+b.deposit,0);
+  const exitKeyMoney  =exiting.reduce((s,b)=>s+b.keyMoney,0);
+  const exitMonthlySave=exiting.reduce((s,b)=>s+b.rent+b.mgmtFee,0);
 
-  const statusBadge=(ep)=>{
-    if(!ep)return'<span class="br-badge 운영중">운영중</span>';
-    const map={'완료':'퇴거완료','확정':'확정','진행중':'진행중','진행중(미정)':'진행중','미정':'퇴거예정','운영중':'운영중'};
-    const cls=map[ep]||'퇴거예정';
-    return`<span class="br-badge ${cls}">${ep||'운영중'}</span>`;
-  };
+  // 배지
+  function statusBadge(raw){
+    const cat=statusCat(raw);
+    const label={'운영중':'운영중','확정':'확정','진행중':'진행중','진행예정':'진행예정','완료':'퇴거완료'}[cat]||cat;
+    const cls={'운영중':'운영중','확정':'확정','진행중':'진행중','진행예정':'퇴거예정','완료':'퇴거완료'}[cat]||'퇴거예정';
+    return`<span class="br-badge ${cls}">${label}</span>`;
+  }
+
+  // 필터 옵션 (selected 유지)
+  const filterOpts=['','운영중','확정','진행중','진행예정','완료']
+    .map(v=>`<option value="${v}"${v===statusFilter?' selected':''}>${v||'전체 상태'}</option>`).join('');
 
   document.getElementById('branches-content').innerHTML=`
   <div class="summary" style="grid-template-columns:repeat(4,1fr)">
@@ -4466,42 +4492,35 @@ function renderBranches(){
   </div>`:''}
 
   <div class="toolbar">
-    <select id="br-f-status" onchange="renderBranches()" style="width:110px">
-      <option value="">전체 상태</option>
-      <option value="운영중">운영중</option>
-      <option value="확정">확정</option>
-      <option value="진행중">진행중</option>
-      <option value="완료">완료</option>
-    </select>
+    <select id="br-f-status" onchange="renderBranches()" style="width:100px">${filterOpts}</select>
     <span style="font-size:11px;color:#888;margin-left:4px">총 ${filtered.length}개 지점</span>
-    <div class="ml-a">
-      <span style="font-size:11px;color:#aaa">구글시트에서 자동 동기화됩니다</span>
-    </div>
+    <div class="ml-a"><span style="font-size:11px;color:#aaa">구글시트에서 동기화</span></div>
   </div>
 
   <div class="tbl-wrap">
     <div style="overflow:auto;max-height:calc(100vh - 360px)">
     <table style="table-layout:fixed;font-size:12px;border-collapse:collapse;width:100%">
       <colgroup>
-        <col style="width:70px"><col style="width:55px"><col style="width:90px">
-        <col style="width:80px"><col style="width:75px"><col style="width:90px">
-        <col style="width:90px"><col style="width:80px"><col style="width:90px"><col style="width:100px">
+        <col style="width:70px"><col style="width:45px"><col style="width:90px">
+        <col style="width:80px"><col style="width:70px"><col style="width:85px">
+        <col style="width:85px"><col style="width:75px"><col style="width:75px"><col style="width:110px">
       </colgroup>
       <thead><tr style="background:#f0f0ee">
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">지점</th>
-        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">객실수</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">객실</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">보증금</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">월세</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">관리비</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">인테리어</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:right">권리금</th>
-        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">퇴거예정월</th>
+        <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">퇴거월</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px;text-align:center">상태</th>
         <th style="padding:6px;border:1px solid #d5d5d5;font-size:11px">비고</th>
       </tr></thead>
       <tbody>
-      ${filtered.length===0?`<tr><td colspan="10" style="padding:20px;text-align:center;color:#aaa">데이터 없음 — 구글시트에서 동기화가 필요합니다</td></tr>`
-      :filtered.map(b=>`<tr>
+      ${filtered.length===0
+        ?`<tr><td colspan="10" style="padding:20px;text-align:center;color:#aaa">데이터 없음</td></tr>`
+        :filtered.map(b=>`<tr>
         <td style="padding:4px 6px;border:1px solid #ebebeb;font-weight:600">${b.id}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.rooms||''}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.deposit?fmt(b.deposit):''}</td>
@@ -4510,8 +4529,8 @@ function renderBranches(){
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.interior?fmt(b.interior):''}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:right">${b.keyMoney?fmt(b.keyMoney):''}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${b.exitMonth||''}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${statusBadge(b.epStatus)}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;max-width:150px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${(b.notes||'').replace(/"/g,'&quot;')}">${b.notes||''}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${statusBadge(b.rawStatus)}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${(b.notes||'').replace(/"/g,'&quot;')}">${b.notes||''}</td>
       </tr>`).join('')}
       </tbody>
     </table>
