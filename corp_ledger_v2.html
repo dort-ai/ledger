@@ -4454,14 +4454,31 @@ function renderBranches(){
     ?merged.filter(b=>statusCat(b.rawStatus)===statusFilter)
     :merged;
 
-  // 요약 (운영중만 보증금 합산, 퇴거 진행 = 확정+진행중+진행예정)
+  // 요약
   const operating=merged.filter(b=>statusCat(b.rawStatus)==='운영중');
-  const exiting  =merged.filter(b=>['확정','진행중','진행예정'].includes(statusCat(b.rawStatus)));
   const completed=merged.filter(b=>statusCat(b.rawStatus)==='완료');
-  const totalDeposit  =operating.reduce((s,b)=>s+b.deposit,0);
+  const totalDeposit=operating.reduce((s,b)=>s+b.deposit,0);
+
+  // 시뮬레이션 범위: 확정만 or 전체(확정+진행중+진행예정)
+  const simScope=document.getElementById('br-sim-scope')?.value||'확정';
+  const simCats=simScope==='전체'?['확정','진행중','진행예정']:['확정'];
+  const exiting=merged.filter(b=>simCats.includes(statusCat(b.rawStatus)));
+
   const exitDeposit   =exiting.reduce((s,b)=>s+b.deposit,0);
   const exitKeyMoney  =exiting.reduce((s,b)=>s+b.keyMoney,0);
   const exitMonthlySave=exiting.reduce((s,b)=>s+b.rent+b.mgmtFee,0);
+
+  // 월별 그룹핑
+  const byMonth={};
+  exiting.forEach(b=>{
+    const m=b.exitMonth||'미정';
+    if(!byMonth[m]) byMonth[m]={branches:[],deposit:0,keyMoney:0,monthlySave:0};
+    byMonth[m].branches.push(b.id);
+    byMonth[m].deposit+=b.deposit;
+    byMonth[m].keyMoney+=b.keyMoney;
+    byMonth[m].monthlySave+=b.rent+b.mgmtFee;
+  });
+  const monthRows=Object.entries(byMonth).sort(([a],[b])=>a==='미정'?1:b==='미정'?-1:a.localeCompare(b));
 
   // 배지
   function statusBadge(raw){
@@ -4483,16 +4500,43 @@ function renderBranches(){
     <div class="sc"><div class="sc-l">퇴거 완료</div><div class="sc-v" style="color:#475569">${completed.length}개</div></div>
   </div>
 
-  ${exiting.length>0?`
   <div class="br-sim-card">
-    <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#166534">💰 퇴거 시 회수 예상 (${exiting.length}개 지점)</div>
-    <div class="br-sim-row"><span>보증금 회수</span><span class="g">${fmt(exitDeposit)}</span></div>
-    <div class="br-sim-row"><span>권리금 수입</span><span class="g">${fmt(exitKeyMoney)}</span></div>
-    <div class="br-sim-row"><span>월 고정비 절감</span><span class="g">${fmt(exitMonthlySave)}/월</span></div>
-    <div class="br-sim-row" style="margin-top:4px;padding-top:8px;border-top:2px solid #86efac">
-      <span>즉시 현금 확보 예상</span><span class="g" style="font-size:15px">${fmt(exitDeposit+exitKeyMoney)}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span style="font-size:12px;font-weight:700;color:#166534">💰 퇴거 시 회수 예상</span>
+      <select id="br-sim-scope" onchange="renderBranches()" style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid #bbf7d0">
+        <option value="확정"${simScope==='확정'?' selected':''}>확정만</option>
+        <option value="전체"${simScope==='전체'?' selected':''}>전체 (확정+진행중+예정)</option>
+      </select>
     </div>
-  </div>`:''}
+    ${exiting.length===0?`<p style="font-size:11px;color:#888;text-align:center;padding:8px 0">해당 없음</p>`:`
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <thead><tr style="background:#f0fdf4;border-bottom:1px solid #bbf7d0">
+        <th style="padding:4px 8px;text-align:left;font-weight:600">퇴거월</th>
+        <th style="padding:4px 8px;text-align:left">지점</th>
+        <th style="padding:4px 8px;text-align:right">보증금</th>
+        <th style="padding:4px 8px;text-align:right">권리금</th>
+        <th style="padding:4px 8px;text-align:right">월 절감</th>
+        <th style="padding:4px 8px;text-align:right">회수 소계</th>
+      </tr></thead>
+      <tbody>
+      ${monthRows.map(([m,d])=>`<tr style="border-bottom:1px solid #e5e7eb">
+        <td style="padding:4px 8px;font-weight:600;color:#166534">${m}</td>
+        <td style="padding:4px 8px;color:#555">${d.branches.join(', ')}</td>
+        <td style="padding:4px 8px;text-align:right">${fmt(d.deposit)}</td>
+        <td style="padding:4px 8px;text-align:right">${d.keyMoney?fmt(d.keyMoney):'-'}</td>
+        <td style="padding:4px 8px;text-align:right;color:#854d0e">${fmt(d.monthlySave)}/월</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:600">${fmt(d.deposit+d.keyMoney)}</td>
+      </tr>`).join('')}
+      </tbody>
+      <tfoot><tr style="background:#f0fdf4;border-top:2px solid #86efac;font-weight:700">
+        <td style="padding:6px 8px" colspan="2">합계 (${exiting.length}개 지점)</td>
+        <td style="padding:6px 8px;text-align:right">${fmt(exitDeposit)}</td>
+        <td style="padding:6px 8px;text-align:right">${fmt(exitKeyMoney)}</td>
+        <td style="padding:6px 8px;text-align:right;color:#854d0e">${fmt(exitMonthlySave)}/월</td>
+        <td style="padding:6px 8px;text-align:right;font-size:13px;color:#166534">${fmt(exitDeposit+exitKeyMoney)}</td>
+      </tr></tfoot>
+    </table>`}
+  </div>
 
   <div class="toolbar">
     <select id="br-f-status" onchange="renderBranches()" style="width:100px">${filterOpts}</select>
