@@ -3785,8 +3785,8 @@ function buildExitDelta(year){
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     for(let m=em;m<=12;m++){
-      if(rent>0) add('pnl','매출원가::지급임차료',m,-rent);
-      if(mgmt>0) add('pnl','매출원가::건물관리비',m,-mgmt);
+      if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
+      if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
     }
     if(dep>0&&depKey) add('cash',depKey,em,dep);
     if(key>0) add('pnl','영업외수익::기타수익',em,key);
