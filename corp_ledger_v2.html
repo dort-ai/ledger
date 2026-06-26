@@ -3775,21 +3775,20 @@ function buildExitDelta(year){
     }
     if(depKey) break;
   }
-  // 25년 실적 기준 룸당 월평균 (임대매출·공과금·소모품 자동 반영)
-  const perRoomCats=[
-    {key:'매출액::임대매출',     cat1:'매출액',   cat2:'임대매출'},
+  // 25년 실적 기준 룸당 월평균 (공과금·소모품 — 공실 무관 고정성 비용)
+  const costCats=[
     {key:'매출원가::지점공과금', cat1:'매출원가', cat2:'지점공과금'},
     {key:'매출원가::지점소모품', cat1:'매출원가', cat2:'지점소모품'},
   ];
   const totalRooms=(ST.branches||[])
     .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
     .reduce((s,b)=>s+Number(b.rooms||0),0);
-  const perRoom={};
+  const perRoomCost={};
   if(totalRooms>0){
-    for(const c of perRoomCats){
+    for(const c of costCats){
       let annualSum=0;
       for(let m=1;m<=12;m++) annualSum+=getForecastActual('__all__',2025,c.cat1,c.cat2,m);
-      perRoom[c.key]=annualSum/12/totalRooms; // 룸당 월평균 (25년 기준, 공실률 자동 반영)
+      perRoomCost[c.key]=annualSum/12/totalRooms;
     }
   }
   (ST.exitPlan||[]).forEach(ep=>{
@@ -3802,16 +3801,22 @@ function buildExitDelta(year){
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
+    const revPct=totalRooms>0?rooms/totalRooms:0; // 임대매출 비례 비율
     for(let m=em;m<=12;m++){
       if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
-      // 룸당 평균 기반 매출·비용 감소 (-perRoom*rooms: 수익은 감소, 비용은 덜 마이너스)
-      if(rooms>0) for(const c of perRoomCats){
-        if(perRoom[c.key]) add('pnl',c.key,m,-perRoom[c.key]*rooms);
+      // 임대매출: 추정치 비례 차감 (여름 공실 예상 월은 추정치도 낮아 감소분도 자동으로 작아짐)
+      if(revPct>0){
+        const fcRev=getForecastVal(curCo||'__all__',year,'pnl','매출액::임대매출',m);
+        if(fcRev>0) add('pnl','매출액::임대매출',m,-revPct*fcRev);
+      }
+      // 공과금·소모품: 룸당 25년 평균 차감 (공실 관계없이 발생)
+      if(rooms>0) for(const c of costCats){
+        if(perRoomCost[c.key]) add('pnl',c.key,m,-perRoomCost[c.key]*rooms);
       }
     }
     if(dep>0&&depKey) add('cash',depKey,em,dep);
-    if(key>0) add('pnl','영업외수익::기타수익',em,key);
+    if(key>0) add('pnl','매출액::기타서비스',em,key); // 권리금 → 매출액::기타서비스
   });
   return d;
 }
