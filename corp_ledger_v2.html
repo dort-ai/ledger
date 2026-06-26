@@ -4485,8 +4485,12 @@ function renderBranches(){
 
   // 요약
   const operating=merged.filter(b=>statusCat(b.rawStatus)==='운영중');
+  const exitPending=merged.filter(b=>['확정','진행중'].includes(statusCat(b.rawStatus)));
   const completed=merged.filter(b=>statusCat(b.rawStatus)==='완료');
   const totalDeposit=operating.reduce((s,b)=>s+b.deposit,0);
+  const operatingRooms=operating.reduce((s,b)=>s+b.rooms,0);
+  const exitPendingRooms=exitPending.reduce((s,b)=>s+b.rooms,0);
+  const completedRooms=completed.reduce((s,b)=>s+b.rooms,0);
 
   // 시뮬레이션 범위: 확정만 or 전체(확정+진행중)
   const simScope=document.getElementById('br-sim-scope')?.value||'확정';
@@ -4533,11 +4537,22 @@ function renderBranches(){
     :statusBadge(val);
 
   document.getElementById('branches-content').innerHTML=`
-  <div class="summary" style="grid-template-columns:repeat(4,1fr)">
-    <div class="sc"><div class="sc-l">운영중 지점</div><div class="sc-v">${operating.length}개</div></div>
-    <div class="sc"><div class="sc-l">퇴거 진행중</div><div class="sc-v" style="color:#854d0e">${exiting.length}개</div></div>
-    <div class="sc"><div class="sc-l">운영중 보증금 합계</div><div class="sc-v">${fmt(totalDeposit)}</div></div>
-    <div class="sc"><div class="sc-l">퇴거 완료</div><div class="sc-v" style="color:#475569">${completed.length}개</div></div>
+  <div class="summary" style="grid-template-columns:repeat(3,1fr)">
+    <div class="sc">
+      <div class="sc-l">운영중</div>
+      <div class="sc-v">${operating.length}개 지점</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${operatingRooms}개 룸</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">퇴거예정 (확정+진행중)</div>
+      <div class="sc-v" style="color:#854d0e">${exitPending.length}개 지점</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${exitPendingRooms}개 룸</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">퇴거 완료</div>
+      <div class="sc-v" style="color:#475569">${completed.length}개 지점</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${completedRooms}개 룸</div>
+    </div>
   </div>
 
   <div class="br-sim-card">
