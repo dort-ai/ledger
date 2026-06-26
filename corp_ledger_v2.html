@@ -4459,15 +4459,14 @@ function renderBranches(){
     if(raw==='완료') return '완료';
     if(raw==='확정') return '확정';
     if(raw.includes('진행중')) return '진행중';
-    if(raw.includes('미정')||raw.includes('예정')) return '진행예정';
-    return '진행예정';
+    return '운영중'; // 진행예정·미정 등은 운영중으로 처리
   }
 
   // ID에서 숫자 추출 (#14 → 14, #64,65 → 64)
   function brNum(id){ const m=String(id||'').match(/#?(\d+)/); return m?parseInt(m[1]):9999; }
 
-  // 정렬 우선순위: 운영중→확정→진행중→진행예정→완료
-  const catOrder={운영중:0,확정:1,진행중:2,진행예정:3,완료:4};
+  // 정렬 우선순위: 운영중→확정→진행중→완료
+  const catOrder={운영중:0,확정:1,진행중:2,완료:3};
   merged.sort((a,b)=>{
     const ca=statusCat(a.rawStatus), cb=statusCat(b.rawStatus);
     const pa=catOrder[ca]??5, pb=catOrder[cb]??5;
@@ -4489,9 +4488,9 @@ function renderBranches(){
   const completed=merged.filter(b=>statusCat(b.rawStatus)==='완료');
   const totalDeposit=operating.reduce((s,b)=>s+b.deposit,0);
 
-  // 시뮬레이션 범위: 확정만 or 전체(확정+진행중+진행예정)
+  // 시뮬레이션 범위: 확정만 or 전체(확정+진행중)
   const simScope=document.getElementById('br-sim-scope')?.value||'확정';
-  const simCats=simScope==='전체'?['확정','진행중','진행예정']:['확정'];
+  const simCats=simScope==='전체'?['확정','진행중']:['확정'];
   const exiting=merged.filter(b=>simCats.includes(statusCat(b.rawStatus)));
 
   const exitDeposit   =exiting.reduce((s,b)=>s+b.deposit,0);
@@ -4513,13 +4512,13 @@ function renderBranches(){
   // 배지
   function statusBadge(raw){
     const cat=statusCat(raw);
-    const label={'운영중':'운영중','확정':'확정','진행중':'진행중','진행예정':'진행예정','완료':'퇴거완료'}[cat]||cat;
-    const cls={'운영중':'운영중','확정':'확정','진행중':'진행중','진행예정':'퇴거예정','완료':'퇴거완료'}[cat]||'퇴거예정';
+    const label={'운영중':'운영중','확정':'확정','진행중':'진행중','완료':'퇴거완료'}[cat]||cat;
+    const cls={'운영중':'운영중','확정':'확정','진행중':'진행중','완료':'퇴거완료'}[cat]||'운영중';
     return`<span class="br-badge ${cls}">${label}</span>`;
   }
 
   // 필터 옵션 (selected 유지)
-  const filterOpts=['','운영중','확정','진행중','진행예정','완료']
+  const filterOpts=['','운영중','확정','진행중','완료']
     .map(v=>`<option value="${v}"${v===statusFilter?' selected':''}>${v||'전체 상태'}</option>`).join('');
 
   // 셀 렌더러 (수정 모드 여부에 따라)
@@ -4530,7 +4529,7 @@ function renderBranches(){
     ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${(val||'').replace(/"/g,'&quot;')}" style="text-align:${align}">`
     :(val||'');
   const selCell=(id,field,val)=>_brEditMode
-    ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','확정','진행중','진행중(미정)','진행예정','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
+    ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','확정','진행중','진행중(미정)','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
     :statusBadge(val);
 
   document.getElementById('branches-content').innerHTML=`
