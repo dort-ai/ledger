@@ -3763,6 +3763,8 @@ function statusCatGlobal(raw){
 
 function buildExitDelta(year){
   const d={pnl:{},cash:{}};
+  const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
+  const exitPlan=effExitPlan();
   function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; }
   // 현금 섹션에서 보증금 회수 항목 키 찾기 (cfMap 동적 탐색)
   const cfMap=getCfMap(curCo||'');
@@ -3780,7 +3782,7 @@ function buildExitDelta(year){
     {key:'매출원가::지점공과금', cat1:'매출원가', cat2:'지점공과금'},
     {key:'매출원가::지점소모품', cat1:'매출원가', cat2:'지점소모품'},
   ];
-  const totalRooms=(ST.branches||[])
+  const totalRooms=branches
     .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
     .reduce((s,b)=>s+Number(b.rooms||0),0);
   const perRoomCost={};
@@ -3791,12 +3793,12 @@ function buildExitDelta(year){
       perRoomCost[c.key]=annualSum/12/totalRooms;
     }
   }
-  (ST.exitPlan||[]).forEach(ep=>{
+  exitPlan.forEach(ep=>{
     if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
     const parts=ep.exitMonth.split('-');
     const ey=Number(parts[0]), em=Number(parts[1]);
     if(ey!==Number(year)) return;
-    const b=(ST.branches||[]).find(x=>x.id===ep.id);
+    const b=branches.find(x=>x.id===ep.id);
     if(!b) return;
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
@@ -4516,8 +4518,8 @@ function renderForecast(){
 // 지점현황
 // ══════════════════════════════════════════════
 function renderBranches(){
-  const branches=ST.branches||[];
-  const exitPlan=ST.exitPlan||[];
+  const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
+  const exitPlan=effExitPlan();
 
   // ID 정규화
   function normBrId(s){ return String(s||'').trim().replace(/\s+/g,''); }
@@ -4618,18 +4620,25 @@ function renderBranches(){
   const filterOpts=['','운영중','확정','진행중','완료']
     .map(v=>`<option value="${v}"${v===statusFilter?' selected':''}>${v||'전체 상태'}</option>`).join('');
 
+  // 시뮬레이션으로 변경된 필드 하이라이트
+  const simMark=(id,field)=>(_brSimMode&&_brSim[id]&&_brSim[id][field]!==undefined)?'background:#f5f3ff;color:#6d28d9;font-weight:600;border-radius:3px;padding:0 3px;':'';
+
   // 셀 렌더러 (수정 모드 여부에 따라)
   const numCell=(id,field,val)=>_brEditMode
     ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${val||0}" style="text-align:right">`
-    :(val?fmt(val):'');
+    :(val?`<span style="${simMark(id,field)}">${fmt(val)}</span>`:'');
   const txtCell=(id,field,val,align='left')=>_brEditMode
     ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${(val||'').replace(/"/g,'&quot;')}" style="text-align:${align}">`
-    :(val||'');
+    :(val?`<span style="${simMark(id,field)}">${val}</span>`:'');
   const selCell=(id,field,val)=>_brEditMode
     ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','확정','진행중','진행중(미정)','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
-    :statusBadge(val);
+    :`<span style="${simMark(id,field)}">${statusBadge(val)}</span>`;
 
   document.getElementById('branches-content').innerHTML=`
+  ${_brSimMode?`<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:#5b21b6">
+    <span>🧪 <b>시뮬레이션 값 표시 중</b> — 실제 데이터·구글시트에는 저장되지 않습니다. 추정 탭의 <b>퇴거계획 반영</b>에도 이 값이 사용됩니다.</span>
+    <button class="btn" onclick="clearBranchSim()" style="color:#b91c1c;font-size:11px;white-space:nowrap">↩ 실제값으로 초기화</button>
+  </div>`:''}
   <div class="summary" style="grid-template-columns:repeat(3,1fr)">
     <div class="sc">
       <div class="sc-l">운영중</div>
@@ -4689,12 +4698,12 @@ function renderBranches(){
   <div class="toolbar">
     <select id="br-f-status" onchange="renderBranches()" style="width:100px"${_brEditMode?' disabled':''}>${filterOpts}</select>
     <span style="font-size:11px;color:#888;margin-left:4px">총 ${filtered.length}개 지점</span>
-    ${_brEditMode?`<span style="font-size:11px;color:#3b82f6;margin-left:8px;font-weight:600">✏️ 수정 모드 — 셀을 직접 편집하세요</span>`:''}
+    ${_brEditMode?`<span style="font-size:11px;color:#7c3aed;margin-left:8px;font-weight:600">🧪 시뮬 입력 모드 — 값을 바꿔 영향을 미리 보세요 (저장 안 됨)</span>`:''}
     <div class="ml-a">
       ${_brEditMode
-        ?`<button class="btn btn-p" onclick="saveBranchEdits()">💾 저장</button>
+        ?`<button class="btn btn-p" onclick="applyBranchSim()">🧪 시뮬 적용</button>
            <button class="btn" onclick="cancelBrEditMode()" style="margin-left:4px">✖ 취소</button>`
-        :`<button class="btn br-edit-btn" onclick="toggleBrEditMode()">✏️ 수정 모드</button>`}
+        :`<button class="btn br-edit-btn" onclick="toggleBrEditMode()">🧪 시뮬레이션</button>${_brSimMode?`<button class="btn" onclick="clearBranchSim()" style="margin-left:4px;color:#b91c1c">↩ 시뮬 초기화</button>`:''}`}
     </div>
   </div>
 
@@ -4733,7 +4742,7 @@ function renderBranches(){
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${txtCell(b.id,'exitMonth',b.exitMonth,'center')}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${selCell(b.id,'status',b.rawStatus)}</td>
         <td style="padding:4px 6px;border:1px solid #ebebeb;font-size:11px;color:#555;${_brEditMode?'':'overflow:hidden;white-space:nowrap;text-overflow:ellipsis'}" ${_brEditMode?'':` title="${(b.notes||'').replace(/"/g,'&quot;')}"`}>${txtCell(b.id,'notes',b.notes)}</td>
-        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center">${_brEditMode?'':`<button class="btn-sm br-edit-btn" onclick="openBranchEdit('${b.id}')">✏️</button>`}</td>
+        <td style="padding:4px 6px;border:1px solid #ebebeb;text-align:center"></td>
       </tr>`).join('')}
       </tbody>
     </table>
@@ -4744,46 +4753,70 @@ function renderBranches(){
 // ══════════════════════════════════════════════
 // 지점 수정 모드 (인라인 셀 편집)
 // ══════════════════════════════════════════════
-let _brEditMode=false;
+let _brEditMode=false;             // 시뮬 입력(인라인) 모드
+let _brSimMode=false;              // 시뮬레이션 값 표시 중 여부
+let _brSim={};                     // { [지점id]: { 필드: 값 } } — 실데이터와 다른 변경분만 보관 (세션 한정, 저장 안 함)
+
 function toggleBrEditMode(){ _brEditMode=true; renderBranches(); }
 function cancelBrEditMode(){ _brEditMode=false; renderBranches(); }
-function saveBranchEdits(){
+
+// 실데이터 + 시뮬 오버레이 = 화면/추정에 쓰이는 유효 값
+function effBranches(){
+  const base=ST.branches||[];
+  if(!_brSimMode) return base;
+  return base.map(b=>{
+    const s=_brSim[b.id]; if(!s) return b;
+    const o={...b};
+    ['deposit','rent','mgmtFee','interior'].forEach(f=>{ if(s[f]!==undefined) o[f]=s[f]; });
+    return o;
+  });
+}
+function effExitPlan(){
+  const base=ST.exitPlan||[];
+  if(!_brSimMode) return base;
+  const norm=s=>String(s||'').trim().replace(/\s+/g,'');
+  const map={}, order=[];
+  base.forEach(e=>{ const k=norm(e.id); map[k]={...e}; order.push(k); });
+  Object.entries(_brSim).forEach(([id,s])=>{
+    const k=norm(id);
+    if(!map[k]){ map[k]={id,keyMoney:'0',exitMonth:'',status:'',notes:''}; order.push(k); }
+    ['keyMoney','exitMonth','status','notes'].forEach(f=>{ if(s[f]!==undefined) map[k][f]=s[f]; });
+  });
+  return order.map(k=>map[k]);
+}
+
+// 시뮬 입력값 적용 — 실데이터와 다른 필드만 _brSim에 기록 (Firestore·시트 미저장)
+function applyBranchSim(){
   const inputs=[...document.querySelectorAll('.br-cell-input')];
   const brFields=['deposit','rent','mgmtFee','interior'];
   const epFields=['keyMoney','exitMonth','status','notes'];
-  const bChg={}, epChg={};
+  const realB={}; (ST.branches||[]).forEach(b=>realB[b.id]=b);
+  const realEp={}; (ST.exitPlan||[]).forEach(e=>realEp[e.id]=e);
+  const set=(id,f,v)=>{ if(!_brSim[id])_brSim[id]={}; _brSim[id][f]=v; };
+  const unset=(id,f)=>{ if(_brSim[id]) delete _brSim[id][f]; };
   inputs.forEach(el=>{
-    const id=el.dataset.id, f=el.dataset.field, v=el.value;
-    if(brFields.includes(f)){ if(!bChg[id])bChg[id]={}; bChg[id][f]=v; }
-    if(epFields.includes(f)){ if(!epChg[id])epChg[id]={}; epChg[id][f]=v; }
+    const id=el.dataset.id, f=el.dataset.field; let v=el.value;
+    if(brFields.includes(f)){
+      v=String(Number(String(v).replace(/[,원\s]/g,''))||0);
+      const cur=String(Number(realB[id]?.[f]||0));
+      v!==cur?set(id,f,v):unset(id,f);
+    } else if(epFields.includes(f)){
+      const nv=f==='keyMoney'?String(Number(String(v).replace(/[,원\s]/g,''))||0):(v||'');
+      const cur=f==='keyMoney'?String(Number(realEp[id]?.keyMoney||0)):(realEp[id]?.[f]||'');
+      nv!==cur?set(id,f,nv):unset(id,f);
+    }
   });
-  // 지점 숫자 필드 반영
-  for(const [id,chg] of Object.entries(bChg)){
-    const idx=(ST.branches||[]).findIndex(b=>b.id===id);
-    if(idx>=0){
-      for(const [f,v] of Object.entries(chg)){
-        ST.branches[idx][f]=String(Number(String(v).replace(/[,원\s]/g,''))||0);
-      }
-    }
-  }
-  // 퇴거 계획 필드 반영
-  if(!ST.exitPlan) ST.exitPlan=[];
-  for(const [id,chg] of Object.entries(epChg)){
-    let idx=ST.exitPlan.findIndex(e=>e.id===id);
-    const hasVal=Object.entries(chg).some(([f,v])=>v!==''&&v!=='운영중'&&(f==='keyMoney'?Number(v)>0:true));
-    if(idx<0&&hasVal){
-      const b=(ST.branches||[]).find(x=>x.id===id)||{};
-      ST.exitPlan.push({id,deposit:String(b.deposit||0),rent:String(b.rent||0),mgmtFee:String(b.mgmtFee||0),keyMoney:'0',exitMonth:'',status:'',notes:''});
-      idx=ST.exitPlan.length-1;
-    }
-    if(idx>=0){
-      for(const [f,v] of Object.entries(chg)){
-        ST.exitPlan[idx][f]=f==='keyMoney'?String(Number(String(v).replace(/[,원\s]/g,''))||0):v;
-      }
-    }
-  }
-  save();
+  Object.keys(_brSim).forEach(id=>{ if(!Object.keys(_brSim[id]).length) delete _brSim[id]; });
+  _brSimMode=Object.keys(_brSim).length>0;
   _brEditMode=false;
+  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);  // 추정 탭 연동 갱신
+  renderBranches();
+}
+
+// 시뮬 초기화 — 실제값으로 복귀
+function clearBranchSim(){
+  _brSim={}; _brSimMode=false; _brEditMode=false;
+  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
   renderBranches();
 }
 
