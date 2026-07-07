@@ -187,15 +187,6 @@ tr.br-edit-row{background:#f8faff!important}
     Google로 로그인
   </button>
   <p style="font-size:11px;color:#aaa;margin-top:4px">데이터는 본인 계정에만 저장되며 타인과 공유되지 않습니다.</p>
-  <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-    <div style="height:1px;width:60px;background:#ddd"></div>
-    <span style="font-size:11px;color:#bbb">또는 공유 코드로 접근</span>
-    <div style="height:1px;width:60px;background:#ddd"></div>
-  </div>
-  <div style="display:flex;gap:8px">
-    <input id="token-input" placeholder="공유 코드 입력" style="padding:9px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:200px;outline:none" onkeydown="if(event.key==='Enter')enterWithToken()">
-    <button onclick="enterWithToken()" style="padding:9px 18px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer">입장</button>
-  </div>
 </div>
 <div id="share-badge"></div>
 
@@ -419,19 +410,6 @@ tr.br-edit-row{background:#f8faff!important}
           <p style="font-size:11px;color:#666;margin-bottom:10px;line-height:1.6">내부거래에 해당하는 <b>중분류</b>를 체크하세요.<br>전체 합산 → 손익계산서에서 <b>[연결 보기]</b> 버튼을 누르면 해당 항목이 상계 처리됩니다.</p>
           <div id="interco-cats-list" style="display:flex;flex-wrap:wrap;gap:4px 0"></div>
         </div>
-        <div class="card" style="grid-column:span 2" id="share-mgmt-card">
-          <div class="card-title">🔗 공유 링크 관리</div>
-          <p style="font-size:11px;color:#888;margin-bottom:8px">생성한 링크를 대표님께 공유하면 Google 계정 없이도 접근할 수 있습니다.</p>
-          <div id="share-tokens-list"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-            <input id="share-label-inp" class="inp" placeholder="이름 (예: 홈스 대표)" style="flex:1;font-size:11px">
-            <select id="share-mode-sel" class="inp" style="width:80px;font-size:11px">
-              <option value="read">읽기</option>
-              <option value="write">쓰기</option>
-            </select>
-            <button class="btn btn-p" onclick="createShareToken()" style="font-size:11px;white-space:nowrap">링크 생성</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -641,10 +619,13 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 let currentUser = null;
-let _shareMode = null;      // null=오너, 'read'=읽기전용, 'write'=공유쓰기
-let _shareOwnerUid = null;  // 공유 접근 시 데이터 오너 uid
-const getUid = () => _shareOwnerUid || currentUser?.uid;
-const _isReadOnly = () => _shareMode === 'read';
+// 가계부 데이터 소유(오너) 계정 uid — 대표님이 본인 계정으로 로그인해도 이 uid의 데이터를 읽음
+const OWNER_UID = 'RHrvpdW9HIdBZLNuDzNTeC5OAZ53';
+// 읽기전용 명단(대표) — 이 이메일로 로그인하면 편집 UI 숨김 + 오너 데이터 조회
+const READONLY_EMAILS = ['sonny@homesinkor.com','edopark@homesinkor.com'];
+let _emailReadOnly = false; // 대표(읽기전용) 계정 여부
+const getUid = () => _emailReadOnly ? OWNER_UID : currentUser?.uid;
+const _isReadOnly = () => _emailReadOnly;
 let _saveTimer    = null;
 let _lsTimer      = null;
 let _dirtyMonths  = new Set(); // 저장 필요한 월 추적
@@ -809,7 +790,6 @@ async function saveToFirestore(){
       wallets:     ST.wallets||{},
       cfMaps:          ST.cfMaps||{},
       cfBaseBalance:   ST.cfBaseBalance||{},
-      shareTokens:     ST.shareTokens||{},
       intercompanyCats:ST.intercompanyCats||[],
       forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
       deposits:        ST.deposits||[],
@@ -842,7 +822,7 @@ async function saveToFirestore(){
 // 삭제 후 영향받은 월 문서 업데이트
 async function updateMonthsInFirestore(months){
   if(!currentUser||!months.length) return;
-  const uid=currentUser.uid;
+  const uid=getUid();
   for(const month of months){
     const monthRows=ST.rows.filter(r=>r.month===month);
     await db.doc(`users/${uid}/months/${month}`).set({rows: monthRows});
@@ -908,17 +888,17 @@ function signOutUser(){
   auth.signOut().then(()=>location.reload());
 }
 
-async function loadFromFirestore(preloadedSnap){
+async function loadFromFirestore(){
   if(!currentUser) return;
   const uid=getUid();
   setSyncStatus('불러오는 중...');
   try{
-    const metaSnap=preloadedSnap||await db.doc(`users/${uid}`).get();
+    const metaSnap=await db.doc(`users/${uid}`).get();
 
     // Firestore 문서가 없거나, 있어도 법인 데이터가 비어있는 경우 → localStorage 폴백 (오너만)
     const firestoreEmpty=!metaSnap.exists||((metaSnap.data().companies||[]).length===0);
     if(firestoreEmpty){
-      if(_shareMode){renderApp();setSyncStatus('');return;} // 공유 접근 시 이전 안 함
+      if(_emailReadOnly){renderApp();setSyncStatus('');return;} // 읽기전용(대표)은 로컬 폴백 안 함
       const local=JSON.parse(localStorage.getItem('ledger_v6')||'null');
       if(local&&(local.companies||[]).length>0){
         if(confirm(`로컬에 저장된 데이터를 클라우드로 이전하시겠습니까?\n법인 ${local.companies.length}개, 거래내역 ${(local.rows||[]).length}건`)){
@@ -946,7 +926,6 @@ async function loadFromFirestore(preloadedSnap){
     ST.wallets       =m.wallets       ||{};
     ST.cfMaps        =m.cfMaps        ||{};
     ST.cfBaseBalance =m.cfBaseBalance ||{};
-    ST.shareTokens     =m.shareTokens     ||{};
     ST.intercompanyCats=m.intercompanyCats||[];
     ST.forecast        =m.forecast        ||{};
     ST.deposits        =m.deposits        ||[];
@@ -1046,82 +1025,31 @@ function renderApp(){
   }
 }
 
-// URL 파라미터 자동 감지 (?uid=XXX&token=YYY)
-{
-  const _p=new URLSearchParams(location.search);
-  const _pu=_p.get('uid'), _pt=_p.get('token');
-  if(_pu&&_pt){window._pendingShareUid=_pu;window._pendingShareToken=_pt;}
-}
-
 // 앱 진입점: Auth 상태 감지
 auth.onAuthStateChanged(async user=>{
-  // URL/입력 코드로 접근 시 익명 로그인 자동 시작
-  if(!user&&window._pendingShareUid){
-    auth.signInAnonymously().catch(e=>alert('접속 실패: '+e.message));
-    return;
-  }
   if(user){
     currentUser=user;
-    // 익명 로그인 후 토큰 검증
-    let _preloadedSnap=null;
-    if(user.isAnonymous&&_shareOwnerUid===null){
-      if(window._pendingShareUid&&window._pendingShareToken){
-        _preloadedSnap=await _resolveShareToken(window._pendingShareUid,window._pendingShareToken);
-        if(!_preloadedSnap){auth.signOut();return;}
-      }else{auth.signOut();return;}
-    }
+    // 읽기전용 명단(대표) 이메일이면 편집 UI 숨김 + 오너 데이터 조회
+    _emailReadOnly = !!(user.email && READONLY_EMAILS.includes(user.email.toLowerCase()));
     document.getElementById('login-overlay').style.display='none';
     const info=document.getElementById('user-info');
     if(info){
-      info.textContent=_shareMode==='read'?'👁 읽기 전용':_shareMode==='write'?'✏️ 공유 접근':(user.displayName||user.email);
+      info.textContent=(user.displayName||user.email||'')+(_emailReadOnly?' · 👁 읽기 전용':'');
       info.style.display='';
     }
     const btn=document.getElementById('btn-signout');
-    if(btn) btn.style.display=_shareMode?'none':'';
-    if(_shareMode){
+    if(btn) btn.style.display=''; // 로그아웃은 항상 가능
+    if(_emailReadOnly){
+      document.body.classList.add('read-only');
       const badge=document.getElementById('share-badge');
-      if(badge){badge.textContent=_shareMode==='read'?'👁 읽기 전용 모드':'✏️ 공유 접근 모드';badge.classList.add('show');}
-      if(_shareMode==='read') document.body.classList.add('read-only');
+      if(badge){badge.textContent='👁 읽기 전용 모드';badge.classList.add('show');}
     }
-    await loadFromFirestore(_preloadedSnap);
+    await loadFromFirestore();
   }else{
     currentUser=null;
-    if(!window._pendingShareUid) document.getElementById('login-overlay').style.display='flex';
+    document.getElementById('login-overlay').style.display='flex';
   }
 });
-
-// 공유 토큰 검증 — users/{ownerUid} 문서의 shareTokens 필드에서 확인
-async function _resolveShareToken(ownerUid,token){
-  try{
-    const snap=await db.doc(`users/${ownerUid}`).get();
-    if(!snap.exists){alert('공유 링크가 유효하지 않습니다.');return null;}
-    const tokens=snap.data().shareTokens||{};
-    if(!tokens[token]){alert('공유 코드가 만료되었거나 유효하지 않습니다.');return null;}
-    _shareOwnerUid=ownerUid;
-    _shareMode=tokens[token].mode||'read';
-    return snap; // 이미 읽은 snap 반환 → loadFromFirestore에서 재사용
-  }catch(e){
-    if(e.code==='permission-denied') alert('접근 권한 오류입니다.\nFirebase Console → Firestore → 규칙에서 읽기 허용이 필요합니다.');
-    else alert('공유 코드 확인 실패: '+e.message);
-    return null;
-  }
-}
-
-// 로그인 화면 공유 코드 입력 — URL 전체 붙여넣기 또는 uid:token 형식 지원
-function enterWithToken(){
-  let input=(document.getElementById('token-input').value||'').trim();
-  let ownerUid='',token='';
-  try{
-    const u=new URL(input.includes('://')?input:'https://x/?'+input);
-    ownerUid=u.searchParams.get('uid')||'';
-    token=u.searchParams.get('token')||'';
-  }catch(e){}
-  if(!ownerUid&&input.includes(':')){const parts=input.split(':');ownerUid=parts[0];token=parts[1]||'';}
-  if(!ownerUid||!token){alert('올바른 공유 링크를 붙여넣거나 uid:token 형식의 코드를 입력하세요.');return;}
-  window._pendingShareUid=ownerUid;
-  window._pendingShareToken=token;
-  auth.signInAnonymously().catch(e=>alert('접속 실패: '+e.message));
-}
 
 const fmt   = n => Number(n||0).toLocaleString('ko-KR');
 const num   = s => parseFloat(String(s||0).replace(/,/g,'').replace(/[^\d.-]/g,''))||0;
@@ -3039,13 +2967,10 @@ async function runAI(){
 // 설정
 // ══════════════════════════════════════════════
 function renderSettings(){
-  // 공유 접근 시 편집 카드 숨김
+  // 읽기전용(대표)이면 편집 카드 전체 숨김
   document.querySelectorAll('#tab-settings .card').forEach(el=>{
-    if(el.id==='share-mgmt-card') el.style.display=_shareMode?'none':'';
-    else if(_isReadOnly()) el.style.display='none';
-    else el.style.display='';
+    el.style.display=_isReadOnly()?'none':'';
   });
-  if(!_isReadOnly()&&!_shareMode) renderShareTokens();
   // 연결재무제표 설정: 전체 법인의 모든 중분류 수집
   if(!_isReadOnly()){
     const allCat2s=new Set();
@@ -3076,42 +3001,6 @@ function toggleInterCo(cat2,checked){
   if(checked&&!ST.intercompanyCats.includes(cat2))ST.intercompanyCats.push(cat2);
   else if(!checked)ST.intercompanyCats=ST.intercompanyCats.filter(c=>c!==cat2);
   save();
-}
-function renderShareTokens(){
-  const el=document.getElementById('share-tokens-list');
-  if(!el||!currentUser) return;
-  const tokens=Object.entries(ST.shareTokens||{});
-  const base=location.href.split('?')[0];
-  const ownerUid=currentUser.uid;
-  el.innerHTML=tokens.length===0
-    ?'<p style="font-size:11px;color:#aaa;margin-bottom:4px">생성된 링크 없음</p>'
-    :tokens.map(([id,t])=>{
-      const url=`${base}?uid=${ownerUid}&token=${id}`;
-      return`<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f0f0f0">
-        <span style="font-size:11px;font-weight:600;min-width:60px">${t.label||'(이름없음)'}</span>
-        <span class="learn-badge" style="background:${t.mode==='read'?'#f59e0b':'#6366f1'};color:#fff">${t.mode==='read'?'읽기':'쓰기'}</span>
-        <input value="${url}" readonly onclick="this.select()" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;background:#f8f8f7;min-width:0">
-        <button class="btn-sm" onclick="navigator.clipboard.writeText('${url}').then(()=>alert('복사됨!'))">복사</button>
-        <button class="btn-sm btn-d" onclick="deleteShareToken('${id}')">삭제</button>
-      </div>`;
-    }).join('');
-}
-function createShareToken(){
-  if(!currentUser){alert('로그인 필요');return;}
-  const label=(document.getElementById('share-label-inp').value||'').trim()||'공유';
-  const mode=document.getElementById('share-mode-sel').value;
-  const token=Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);
-  if(!ST.shareTokens)ST.shareTokens={};
-  ST.shareTokens[token]={mode,label};
-  save();
-  document.getElementById('share-label-inp').value='';
-  renderShareTokens();
-}
-function deleteShareToken(tokenId){
-  if(!confirm('이 링크를 삭제하면 더 이상 접근할 수 없습니다. 삭제할까요?'))return;
-  delete ST.shareTokens[tokenId];
-  save();
-  renderShareTokens();
 }
 function upS23(){const c1=document.getElementById('sp13').value;const ac=getAc(curCo);document.getElementById('sp23').innerHTML=`<option value="">중분류 선택...</option>`+Object.keys(ac[c1]||{}).filter(k=>k!=='_cat4').map(c=>`<option>${c}</option>`).join('');}
 function hk(e,type){if(e.shiftKey&&e.key==='Enter'){e.preventDefault();const el=e.target,p=el.selectionStart;el.value=el.value.slice(0,p)+'\n'+el.value.slice(p);el.selectionStart=el.selectionEnd=p+1;}else if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();({wallet:addWallet,cat1:addCat1,cat2:addCat2,cat3:addCat3,cat4:addCat4})[type]?.();}}
