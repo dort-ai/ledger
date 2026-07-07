@@ -818,10 +818,11 @@ async function saveToFirestore(){
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
-    // dirty한 월만 저장 — 로드된 월만 저장 (미로드 월을 빈 배열로 덮어쓰는 사고 방지)
+    // dirty한 월만 저장 — 미로드 + 메모리에도 행 없는 월만 스킵 (빈 배열 덮어쓰기 방지, 신규 임포트 월은 항상 저장)
     for(const month of _dirtyMonths){
-      if(!_loadedMonths.has(month)) continue;
       const monthRows=ST.rows.filter(r=>r.month===month);
+      if(!_loadedMonths.has(month) && monthRows.length===0) continue;
+      _loadedMonths.add(month); // 저장한 월은 로드됨으로 표시 (재조회 시 빈 문서로 오인 방지)
       await db.doc(`users/${uid}/months/${month}`).set({rows: monthRows});
     }
     _dirtyMonths.clear();
