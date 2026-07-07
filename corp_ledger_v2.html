@@ -952,18 +952,6 @@ async function loadFromFirestore(preloadedSnap){
     ST.exitPlan        =m.exitPlan        ||[];
     ST._metaMonths =(m.months     ||[]).sort();
 
-    // Firestore 서브컬렉션 스캔으로 누락 월 복구 (문서 ID만 읽어 비용 최소)
-    try{
-      const colSnap=await db.collection(`users/${uid}/months`).get();
-      const scanned=colSnap.docs.map(d=>d.id).filter(id=>{const m=id.match(/\d{2}년 (\d{2})월/);return m&&parseInt(m[1])>=1&&parseInt(m[1])<=12;}).sort();
-      const merged=[...new Set([...ST._metaMonths,...scanned])].sort();
-      if(merged.length>ST._metaMonths.length){
-        ST._metaMonths=merged;
-        await db.doc(`users/${uid}`).update({months:merged});
-        console.log('_metaMonths 복구:', merged);
-      }
-    }catch(e){ console.warn('metaMonths 스캔 실패',e); }
-
     // 가장 최근 월 로드 — 최대 3개월 병렬 조회 후 가장 최근 데이터 사용
     _loadedMonths.clear();
     ST.rows=[];
@@ -983,11 +971,34 @@ async function loadFromFirestore(preloadedSnap){
     localStorage.setItem('ledger_v6',JSON.stringify(ST));
     setSyncStatus('');
     renderApp();
+
+    // 누락 월 복구 스캔은 백그라운드로 (초기 렌더를 막지 않음)
+    // 주의: collection().get()은 전체 문서를 다운로드하므로 반드시 렌더 후 비동기 실행
+    scanMissingMonths(uid);
   }catch(e){
     console.error('Firestore 로드 오류',e);
     setSyncStatus('⚠ 로드 실패 (로컬 사용)');
     renderApp();
   }
+}
+
+// 누락 월 복구 스캔 (백그라운드) — months 서브컬렉션 ID를 훑어 메타 목록에 없는 월을 복구
+// collection().get()은 전체 문서를 다운로드하므로 초기 렌더 후 비동기로만 호출할 것
+let _scanDone=false;
+async function scanMissingMonths(uid){
+  if(_scanDone||!currentUser||_isReadOnly()) return;
+  _scanDone=true;
+  try{
+    const colSnap=await db.collection(`users/${uid}/months`).get();
+    const scanned=colSnap.docs.map(d=>d.id).filter(id=>{const m=id.match(/\d{2}년 (\d{2})월/);return m&&parseInt(m[1])>=1&&parseInt(m[1])<=12;}).sort();
+    const merged=[...new Set([...(ST._metaMonths||[]),...scanned])].sort();
+    if(merged.length>(ST._metaMonths||[]).length){
+      ST._metaMonths=merged;
+      await db.doc(`users/${uid}`).update({months:merged});
+      console.log('_metaMonths 복구:', merged);
+      renderPeriodSelector(); // 새로 발견된 월을 드롭다운에 반영
+    }
+  }catch(e){ console.warn('metaMonths 스캔 실패',e); }
 }
 
 // 특정 월 데이터를 Firestore에서 추가 로드
