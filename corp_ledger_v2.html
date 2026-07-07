@@ -850,8 +850,10 @@ async function updateMonthsInFirestore(months){
 }
 
 // 전체 데이터 백업
+// auto(가져오기 확정 등 자동 백업)는 들여쓰기 없이 문자열화 — 데이터 많을 때 "처리 중" 지연 방지
+// 수동 백업만 사람이 읽기 좋게 들여쓰기 유지
 function backupData(auto=false){
-  const json=JSON.stringify(ST,null,2);
+  const json=auto?JSON.stringify(ST):JSON.stringify(ST,null,2);
   const blob=new Blob([json],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
