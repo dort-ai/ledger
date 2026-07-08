@@ -1223,22 +1223,6 @@ function renderLedger(){
   renderPeriodSelector();
   const isAll=curCo==='__all__';
   const allRows=getRows(curCo);
-  _rows=getFiltered();
-
-  const totI=_rows.reduce((s,r)=>s+num(r.income),0);
-  const totE=_rows.reduce((s,r)=>s+num(r.expense),0);
-  document.getElementById('summary').innerHTML=[
-    {l:'총 입금',v:fmt(totI),c:'g'},{l:'총 지급',v:fmt(totE),c:'r'},
-    {l:'순이익',v:fmt(totI-totE),c:totI-totE>=0?'g':'r'},{l:'건수',v:_rows.length+'건',c:''},
-  ].map(x=>`<div class="sc"><div class="sc-l">${x.l}</div><div class="sc-v ${x.c}">${x.v}</div></div>`).join('');
-
-  // 중분류 미작성 배지 (기간 필터 적용된 행 기준)
-  const uncatCnt=_rows.filter(r=>!r.cat2&&(num(r.income)||num(r.expense))).length;
-  const btnU=document.getElementById('btn-uncat');
-  if(btnU){
-    if(uncatCnt>0){btnU.style.display='';btnU.textContent=`⚠ 중분류 미작성 ${uncatCnt}건`;}
-    else{btnU.style.display='none';}
-  }
 
   // 헤더 — 단일 패스로 모든 필터 옵션 수집
   const _sSets={month:new Set(),cat1:new Set(),cat2:new Set(),cat3:new Set(),cat4:new Set(),wallet:new Set()};
@@ -1272,6 +1256,29 @@ function renderLedger(){
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
   }).join('')}</tr>`;
+
+  renderLedgerBody();
+}
+
+// 본문(요약·배지·행)만 갱신 — 헤더(검색 입력창)를 재생성하지 않아 한글 조합/포커스가 유지됨
+function renderLedgerBody(){
+  const isAll=curCo==='__all__';
+  _rows=getFiltered();
+
+  const totI=_rows.reduce((s,r)=>s+num(r.income),0);
+  const totE=_rows.reduce((s,r)=>s+num(r.expense),0);
+  document.getElementById('summary').innerHTML=[
+    {l:'총 입금',v:fmt(totI),c:'g'},{l:'총 지급',v:fmt(totE),c:'r'},
+    {l:'순이익',v:fmt(totI-totE),c:totI-totE>=0?'g':'r'},{l:'건수',v:_rows.length+'건',c:''},
+  ].map(x=>`<div class="sc"><div class="sc-l">${x.l}</div><div class="sc-v ${x.c}">${x.v}</div></div>`).join('');
+
+  // 중분류 미작성 배지 (기간 필터 적용된 행 기준)
+  const uncatCnt=_rows.filter(r=>!r.cat2&&(num(r.income)||num(r.expense))).length;
+  const btnU=document.getElementById('btn-uncat');
+  if(btnU){
+    if(uncatCnt>0){btnU.style.display='';btnU.textContent=`⚠ 중분류 미작성 ${uncatCnt}건`;}
+    else{btnU.style.display='none';}
+  }
 
   // 바디
   _renderLimit=200;
@@ -1919,11 +1926,15 @@ function delRow(id){
 // 텍스트 필터 (부분 일치)
 function setF(k,v,el){
   filters[k]=v; commitEdit(true);
-  const selStart=el&&el.selectionStart, selEnd=el&&el.selectionEnd;
-  renderLedger();
-  if(el){
-    const restored=document.querySelector('.th-f input[data-fk="'+k+'"]');
-    if(restored){restored.focus();try{restored.setSelectionRange(selStart,selEnd);}catch(e){}}
+  // 텍스트 검색은 본문만 갱신 — 헤더(입력창)를 다시 그리지 않아 한글 조합/포커스가 유지됨
+  renderLedgerBody();
+  const input=el||document.querySelector('.th-f input[data-fk="'+k+'"]');
+  if(input){
+    if(!el) input.value=v; // ×(클리어) 등 외부 호출 시 입력값 동기화
+    const wrap=input.closest('.tf-wrap');
+    const clr=wrap&&wrap.querySelector('.tf-clr');
+    if(clr) clr.classList.toggle('show',!!v);
+    // el이 있으면(타이핑 중) element가 유지되므로 포커스/커서를 건드리지 않음 (IME 보호)
   }
 }
 // 다중선택 필터 관련
