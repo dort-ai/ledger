@@ -2857,11 +2857,8 @@ function applyBulkEdit(){
   let cnt=0;
   ST.rows.forEach(r=>{if(ids.has(r.id)){r.cat1=c1;r.cat2=c2;r.cat3=c3;r.cat4=c4;cnt++;}});
   save();renderLedger();
-  renderBulkList();
+  renderBulkList(); // 적용된 항목은 미분류 목록에서 사라짐 — 팝업은 열어둔 채 연속 분류 가능
   document.getElementById('bulk-status').textContent=`✅ ${cnt}건 적용됨`;
-  // 모달 닫기 및 그리드 포커스 복원
-  closeOv('bulk-ov');
-  document.getElementById('tbl-scroll')?.focus();
 }
 
 // ══════════════════════════════════════════════
@@ -3450,7 +3447,11 @@ function applySplits(idxs,proposals){
   alert('✅ '+cnt+'건 분할 완료');
 }
 
-function closeOv(id){document.getElementById(id).classList.remove('show');}
+function closeOv(id){
+  document.getElementById(id).classList.remove('show');
+  // 일괄등록 모달을 닫을 때만 그리드 포커스 복원 (닫은 뒤 키 입력 먹통 방지 — 기존 3d8c4c4 목적 유지)
+  if(id==='bulk-ov') document.getElementById('tbl-scroll')?.focus();
+}
 function bgClose(e,id){if(e.target===e.currentTarget)closeOv(id);}
 
 // 분할 부모 행의 자식 합계 표시 갱신
