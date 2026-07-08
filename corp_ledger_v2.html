@@ -16,7 +16,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .main{margin-left:200px;padding:14px;min-height:100vh}
 .sidebar-logo{padding:14px 12px 10px;font-size:14px;font-weight:700;border-bottom:1px solid #333;flex-shrink:0}
 .sidebar-logo span{font-size:10px;color:#888;display:block;margin-top:2px}
-.company-list{flex:1;overflow-y:auto;padding:4px 0}
+.sb-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.company-list{padding:4px 0}
 .ci{padding:7px 12px;cursor:pointer;font-size:12px;color:#ccc;display:flex;align-items:center;gap:7px;border-left:3px solid transparent}
 .ci:hover{background:#252525;color:#fff}
 .ci.active{background:#252525;color:#fff;border-left-color:#fff}
@@ -26,10 +27,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .sidebar-add{padding:8px 12px;border-top:1px solid #333;flex-shrink:0}
 .sidebar-add button{width:100%;padding:6px;background:#333;border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:11px}
 .sidebar-add button:hover{background:#444}
-.tabs{display:flex;margin-bottom:12px;border-bottom:1px solid #ddd;overflow-x:auto}
-.tab{padding:6px 12px;border:none;background:none;cursor:pointer;font-size:12px;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
-.tab:hover{color:#333}
-.tab.active{color:#1a1a1a;border-bottom-color:#1a1a1a;font-weight:600}
+/* 사이드바 메뉴 (구 상단 탭) */
+.sb-grp{padding:10px 12px 3px;font-size:9px;letter-spacing:.12em;color:#777;font-weight:700;flex-shrink:0}
+.tab{display:block;width:100%;text-align:left;padding:6px 12px;border:none;background:none;cursor:pointer;font-size:12px;color:#c9c9c9;border-left:3px solid transparent;white-space:nowrap;flex-shrink:0}
+.tab:hover{background:#252525;color:#fff}
+.tab.active{background:#252525;color:#fff;border-left-color:#818cf8;font-weight:600}
 .card{background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:12px;margin-bottom:12px}
 .card-title{font-size:13px;font-weight:600;margin-bottom:10px}
 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}
@@ -129,7 +131,7 @@ td.copy-flash{background:#c8f0c8!important}
 .cf-nm-click{cursor:pointer}
 .cf-nm-click:hover{background:#dbeafe !important;outline:1px solid #93c5fd}
 .ro-hide{display:none!important}
-body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn,body.read-only #btn-dep-add,body.read-only .dep-edit-btn,body.read-only .dep-del-btn,body.read-only .br-edit-btn{display:none!important}
+body.read-only #btn-del-sel,body.read-only #btn-add,body.read-only #btn-bulk,body.read-only #btn-rules,body.read-only #btn-ai,body.read-only #btn-split,body.read-only #add-row-footer,body.read-only #tab-import-btn,body.read-only #tab-learn-btn,body.read-only #tab-settings-btn,body.read-only #btn-dep-add,body.read-only .dep-edit-btn,body.read-only .dep-del-btn,body.read-only .br-edit-btn,body.read-only #t-body .btn-sm{display:none!important}
 /* 전대보증금 상태 뱃지 */
 .dep-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
 .dep-badge.보유중{background:#dcfce7;color:#166534}
@@ -192,9 +194,28 @@ tr.br-edit-row{background:#f8faff!important}
 
 <div class="sidebar">
   <div class="sidebar-logo">📒 법인 가계부<span>멀티 법인 관리</span></div>
-  <div class="company-list" id="company-list"></div>
-  <div class="ca" id="all-btn" onclick="selectCo('__all__')">📊 전체 합산</div>
-  <div class="sidebar-add"><button onclick="openCoForm()">+ 법인 추가</button></div>
+  <div class="sb-scroll">
+    <div class="sb-grp">법인</div>
+    <div class="company-list" id="company-list"></div>
+    <div class="ca" id="all-btn" onclick="selectCo('__all__')">📊 전체 합산</div>
+    <div class="sidebar-add"><button onclick="openCoForm()">+ 법인 추가</button></div>
+    <div id="sb-menu" style="display:none">
+      <div class="sb-grp">장부</div>
+      <button class="tab active" data-tab="ledger" onclick="switchTab('ledger')">거래내역</button>
+      <div class="sb-grp">리포트</div>
+      <button class="tab" data-tab="monthly" onclick="switchTab('monthly')">월별</button>
+      <button class="tab" data-tab="pl" onclick="switchTab('pl')">손익계산서</button>
+      <button class="tab" data-tab="cashflow" onclick="switchTab('cashflow')">현금흐름</button>
+      <button class="tab" data-tab="forecast" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
+      <div class="sb-grp">자산</div>
+      <button class="tab" data-tab="deposits" onclick="switchTab('deposits')" id="tab-deposits-btn">🏠 전대보증금</button>
+      <button class="tab" data-tab="branches" onclick="switchTab('branches')" id="tab-branches-btn">🏢 지점현황</button>
+      <div class="sb-grp">도구</div>
+      <button class="tab" data-tab="import" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
+      <button class="tab" data-tab="learn" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
+      <button class="tab" data-tab="settings" onclick="switchTab('settings')" id="tab-settings-btn">⚙️ 설정</button>
+    </div>
+  </div>
 </div>
 
 <div id="fdrop"></div>
@@ -219,19 +240,6 @@ tr.br-edit-row{background:#f8faff!important}
   </div>
 
   <div id="content-area" style="display:none">
-    <div class="tabs">
-      <button class="tab active" onclick="switchTab('ledger')">거래내역</button>
-      <button class="tab" onclick="switchTab('monthly')">월별</button>
-      <button class="tab" onclick="switchTab('pl')">손익계산서</button>
-      <button class="tab" onclick="switchTab('cashflow')">현금흐름</button>
-      <button class="tab" onclick="switchTab('deposits')" id="tab-deposits-btn">🏠 전대보증금</button>
-      <button class="tab" onclick="switchTab('branches')" id="tab-branches-btn">🏢 지점현황</button>
-      <button class="tab" onclick="switchTab('forecast')" id="tab-forecast-btn">📊 추정</button>
-      <button class="tab" onclick="switchTab('learn')" id="tab-learn-btn">🧠 학습데이터</button>
-      <button class="tab" onclick="switchTab('import')" id="tab-import-btn">📥 가져오기</button>
-      <button class="tab" onclick="switchTab('settings')" id="tab-settings-btn">설정</button>
-    </div>
-
     <!-- 공유 기간 선택 바 (거래내역·월별·손익계산서·현금흐름 공통) -->
     <div id="period-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;background:#f8f8f7;padding:7px 12px;border-radius:6px;border:1px solid #e5e5e5;flex-wrap:wrap">
       <span style="font-size:11px;color:#555;font-weight:600">📅</span>
@@ -799,13 +807,20 @@ async function saveToFirestore(){
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
     // dirty한 월만 저장 — 미로드 + 메모리에도 행 없는 월만 스킵 (빈 배열 덮어쓰기 방지, 신규 임포트 월은 항상 저장)
+    const deferred=[];
     for(const month of _dirtyMonths){
+      // 미로드인데 Firestore에 이미 존재하는 월이면 먼저 로드-병합 (기존 행을 새 행 몇 개로 덮어쓰는 사고 방지)
+      if(!_loadedMonths.has(month) && (ST._metaMonths||[]).includes(month)){
+        await loadMonthFromFirestore(month);
+        if(!_loadedMonths.has(month)){ deferred.push(month); continue; } // 로드 실패 → 이번 저장 보류, 다음에 재시도
+      }
       const monthRows=ST.rows.filter(r=>r.month===month);
       if(!_loadedMonths.has(month) && monthRows.length===0) continue;
       _loadedMonths.add(month); // 저장한 월은 로드됨으로 표시 (재조회 시 빈 문서로 오인 방지)
       await db.doc(`users/${uid}/months/${month}`).set({rows: monthRows});
     }
     _dirtyMonths.clear();
+    deferred.forEach(m=>_dirtyMonths.add(m)); // 보류된 월은 dirty 유지
     setSyncStatus('✓ 저장됨');
     setTimeout(()=>setSyncStatus(''),3000);
   }catch(e){
@@ -821,9 +836,18 @@ async function saveToFirestore(){
 
 // 삭제 후 영향받은 월 문서 업데이트
 async function updateMonthsInFirestore(months){
-  if(!currentUser||!months.length) return;
+  if(!currentUser||_isReadOnly()||!months.length) return;
   const uid=getUid();
   for(const month of months){
+    // 미로드 월 보호: Firestore에 존재하는 월이면 로드-병합 후 저장, 로드 실패 시 이 월은 건너뜀
+    if(!_loadedMonths.has(month)){
+      if((ST._metaMonths||[]).includes(month)){
+        await loadMonthFromFirestore(month);
+        if(!_loadedMonths.has(month)) continue;
+      } else {
+        _loadedMonths.add(month);
+      }
+    }
     const monthRows=ST.rows.filter(r=>r.month===month);
     await db.doc(`users/${uid}/months/${month}`).set({rows: monthRows});
   }
@@ -1022,6 +1046,7 @@ function renderApp(){
   if(first) selectCo(first.id); else{
     document.getElementById('no-co').style.display='';
     document.getElementById('content-area').style.display='none';
+    document.getElementById('sb-menu').style.display='none';
   }
 }
 
@@ -1876,9 +1901,24 @@ document.addEventListener('mousedown',e=>{
 // 행 추가 / 분할
 // ══════════════════════════════════════════════
 function addRow(){
-  const r={id:uid(),companyId:curCo,date:'',month:'',desc:'',income:'0',expense:'0',cat1:'',cat2:'',cat3:'',cat4:'',note:'',wallet:''};
+  // 새 행에 현재 조회 중인 월의 날짜를 기본 부여 — month가 비면 기간 필터에 걸러져 안 보이고 Firestore에도 저장되지 않음
+  const now=new Date();
+  const pm=(periodMonth||'').match(/(\d{2})년 (\d{2})월/);
+  let date,month;
+  if(pm){
+    const sameMonth=('20'+pm[1])===String(now.getFullYear())&&pm[2]===String(now.getMonth()+1).padStart(2,'0');
+    const dd=sameMonth?String(now.getDate()).padStart(2,'0'):'01';
+    date=`20${pm[1]}.${pm[2]}.${dd}`;
+    month=`${pm[1]}년 ${pm[2]}월`;
+  }else{
+    date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+    month=`${String(now.getFullYear()).slice(2)}년 ${String(now.getMonth()+1).padStart(2,'0')}월`;
+  }
+  const r={id:uid(),companyId:curCo,date,month,desc:'',income:'0',expense:'0',cat1:'',cat2:'',cat3:'',cat4:'',note:'',wallet:''};
   ST.rows.push(r); save([r.id]); renderLedger();
-  const ri=_rows.length-1;
+  // 새 행의 실제 위치를 id로 탐색 (정렬·필터에 따라 마지막이 아닐 수 있음)
+  let ri=_rows.findIndex(x=>x.id===r.id);
+  if(ri<0) ri=_rows.length-1;
   selAnchor={r:ri,c:0}; selFocus={r:ri,c:0};
   updateHL();
   setTimeout(()=>startEdit(ri,DC.findIndex(d=>isEditable(DC.indexOf(d)))),30);
@@ -1905,6 +1945,7 @@ function updSelInfo(){
   document.getElementById('btn-del-sel').style.display=n?'':'none';
 }
 function delSelected(){
+  if(_isReadOnly())return;
   const ids=[...document.querySelectorAll('.row-chk:checked')].map(c=>c.dataset.id);
   if(!ids.length)return; if(!confirm(`${ids.length}건 삭제?`))return;
   // 삭제 전 영향받는 월 수집
@@ -1915,6 +1956,7 @@ function delSelected(){
   updateMonthsInFirestore(affected);
 }
 function delRow(id){
+  if(_isReadOnly())return;
   if(!confirm('삭제?'))return;
   // 삭제 전 영향받는 월 수집
   const affected=[...new Set(ST.rows.filter(r=>r.id===id||r.splitParent===id).map(r=>r.month).filter(Boolean))];
@@ -2067,6 +2109,7 @@ function selectCo(id){
   const isAll=id==='__all__'; const c=isAll?null:getCo(id);
   document.getElementById('no-co').style.display='none';
   document.getElementById('content-area').style.display='';
+  document.getElementById('sb-menu').style.display='';
   document.getElementById('page-title').textContent=isAll?'전체 합산':c.name;
   const badge=document.getElementById('co-badge');
   if(!isAll&&c){badge.style.display='';badge.style.background=c.color;badge.textContent=c.regno||'법인';}
@@ -2093,7 +2136,7 @@ async function switchTab(t){
   ['ledger','monthly','pl','cashflow','deposits','branches','forecast','learn','import','settings'].forEach(id=>{
     document.getElementById('tab-'+id).style.display=id===t?'':'none';
   });
-  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['ledger','monthly','pl','cashflow','deposits','branches','forecast','learn','import','settings'][i]===t));
+  document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===t));
   const pb=document.getElementById('period-bar');
   if(pb) pb.style.display=['ledger','monthly','cashflow','pl'].includes(t)?'':'none';
   if(['ledger','monthly','cashflow','pl'].includes(t)) renderPeriodSelector();
@@ -3468,23 +3511,8 @@ function refreshParentSplit(parentId){
   el.style.color='#888';
 }
 
-// tbl-scroll 포커스 없이도 그리드 단축키 동작
-document.addEventListener('keydown', (e) => {
-  if(document.activeElement === document.getElementById('tbl-scroll')) return; // gridKD가 처리
-  if(editActive) return;
-  if(!curCo || curCo==='__all__') return;
-  if(document.querySelector('.overlay.show')) return;
-  const active = document.activeElement;
-  if(active && (active.tagName==='INPUT'||active.tagName==='TEXTAREA')) return;
-  if(!_rows.length) return;
-  const ctrl=e.ctrlKey||e.metaKey;
-  if(e.key==='ArrowDown')  { e.preventDefault(); moveAnchor(1,0,e.shiftKey); return; }
-  if(e.key==='ArrowUp')    { e.preventDefault(); moveAnchor(-1,0,e.shiftKey); return; }
-  if(e.key==='ArrowRight') { e.preventDefault(); moveAnchor(0,1,e.shiftKey); return; }
-  if(e.key==='ArrowLeft')  { e.preventDefault(); moveAnchor(0,-1,e.shiftKey); return; }
-  if(e.key==='Enter'&&!e.shiftKey&&!ctrl){ e.preventDefault(); startEdit(selAnchor.r,selAnchor.c); return; }
-  if(e.key==='Delete'||e.key==='Backspace') { e.preventDefault(); clearRange(); return; }
-});
+// (제거됨) 중복 keydown 리스너 — 1613줄 document 레벨 gridKD가 포커스 무관하게 전부 처리.
+// 이 리스너는 curTab 검사가 없어 다른 탭에서 Delete가 장부 셀을 지우고 화살표가 2칸씩 이동하는 버그를 유발했음.
 
 renderSidebar();
 
