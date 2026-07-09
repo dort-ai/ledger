@@ -2833,10 +2833,14 @@ function openBulkEdit(){
   document.getElementById('bulk-cat3').value='';
   document.getElementById('bulk-cat4').value='';
   document.getElementById('bulk-status').textContent='';
+  document.getElementById('bulk-list').innerHTML=''; // 새로 열 때는 이전 선택을 남기지 않도록 목록 비우고 시작
   renderBulkList();
   document.getElementById('bulk-ov').classList.add('show');
 }
 function renderBulkList(){
+  // 재렌더 전 현재 선택(행 id)을 보존 — 검색 디바운스(250ms)가 클릭 직후 뒤늦게 발화해
+  // 목록 DOM을 통째로 교체하면서 방금 체크한 항목이 지워지던 버그 방지
+  const _prevSel=new Set([...document.querySelectorAll('._bulkChk:checked')].map(c=>c.dataset.id));
   const kw=(document.getElementById('bulk-filter').value||'').toLowerCase();
   const rows=getRows(curCo).filter(r=>!r.cat2&&!r.splitGroup);
   const list=kw?rows.filter(r=>(r.desc||'').toLowerCase().includes(kw)):rows;
@@ -2873,6 +2877,8 @@ function renderBulkList(){
   });
   html+='</tbody></table>';
   document.getElementById('bulk-list').innerHTML=html;
+  // 보존해 둔 선택 복원 (재렌더로 교체된 체크박스에 다시 체크)
+  if(_prevSel.size) document.querySelectorAll('._bulkChk').forEach(c=>{ if(_prevSel.has(c.dataset.id)) c.checked=true; });
   updateBulkSelInfo();
 }
 function bulkToggleAll(checked){
