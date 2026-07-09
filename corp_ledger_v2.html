@@ -1277,7 +1277,9 @@ function renderLedger(){
       fh=`<div class="ms-wrap"><button class="ms-btn${fv.length?' ms-active':''}" data-mskey="${col.k}" onclick="showMsDrop(event,'${col.k}')">${lbl}</button></div>`;
     } else if(col.filter==='text'){
       const fv=(filters[col.k]||'').replace(/"/g,'&quot;');
-      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oncompositionstart="clearTimeout(this._ft)" oninput="if(event.isComposing||_filterComposing)return;clearTimeout(this._ft);this._ft=setTimeout(()=>setF('${col.k}',this.value,this),180)" oncompositionend="clearTimeout(this._ft);_filterComposing=true;setTimeout(()=>_filterComposing=false,20);setF('${col.k}',this.value,this)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
+      // 조합(compositionstart/end)은 인라인 속성으로는 브라우저가 핸들러로 컴파일하지 않음(onclick/oninput과 달리 표준 IDL 아님)
+      // → 아래 document 위임 리스너에서 addEventListener로 처리. 여기선 oninput만(정상 컴파일됨).
+      fh=`<div class="tf-wrap"><input type="text" data-fk="${col.k}" value="${fv}" placeholder="검색" oninput="if(event.isComposing||_filterComposing)return;clearTimeout(this._ft);this._ft=setTimeout(()=>setF('${col.k}',this.value,this),180)"><button class="tf-clr${filters[col.k]?' show':''}" onclick="setF('${col.k}','')">×</button></div>`;
     }
     const sortIcon=sortKey===col.k?(sortAsc?' ↑':' ↓'):'';
     return`<th style="width:${col.w}px"><div class="th-inner"><div class="th-lbl" onclick="doSort('${col.k}')">${col.lbl}${sortIcon}</div><div class="th-f">${fh}</div></div></th>`;
@@ -1765,6 +1767,19 @@ document.addEventListener('paste', (e) => {
   const active = document.activeElement;
   if(active && (active.tagName==='INPUT'||active.tagName==='TEXTAREA') && active!==editInp) return;
   handlePaste(e);
+});
+// 검색 필터 한글 조합 처리 — 인라인 oncomposition* 속성은 컴파일 안 되므로 위임 리스너로 등록.
+// 헤더가 renderLedger로 재생성돼도 유지되도록 document 위임 사용.
+document.addEventListener('compositionstart', (e)=>{
+  const inp=e.target;
+  if(inp&&inp.matches&&inp.matches('.th-f input[data-fk]')) clearTimeout(inp._ft);
+});
+document.addEventListener('compositionend', (e)=>{
+  const inp=e.target;
+  if(!inp||!inp.matches||!inp.matches('.th-f input[data-fk]')) return;
+  clearTimeout(inp._ft);
+  _filterComposing=true; setTimeout(()=>_filterComposing=false,30); // 직후 oninput(isComposing=false) 중복 방지
+  setF(inp.dataset.fk, inp.value, inp);
 });
 
 function gridKD(e){
