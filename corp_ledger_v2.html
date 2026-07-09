@@ -739,6 +739,7 @@ let editModalRowId=null;
 let selAnchor={r:0,c:0}, selFocus={r:0,c:0};
 let editActive=false, editR=-1, editC=-1;
 let editInp=null, editTd=null;
+let editArmed=false, _gridMD=false; // editArmed: 선택만 된 무장(파란) 상태 — IME 첫글자 대응
 let dropFocusIdx=-1, dropOpts=[], dropCb=null;
 let clipBoard=null; // {rows:string[][], colKeys:string[], cut:bool}
 let undoStack=[];
@@ -1454,6 +1455,7 @@ function _loadMoreRows(){
 // ══════════════════════════════════════════════
 function onTdDown(e,ri,ci){
   if(e.button!==0)return;
+  _gridMD=true; // 클릭 시작(드래그 아닐 때 mouseup에서 무장)
   commitEdit();
   if(e.shiftKey){
     selFocus={r:ri,c:ci};
@@ -1482,7 +1484,15 @@ document.addEventListener('mousemove', e=>{
   if(_hlRAF)cancelAnimationFrame(_hlRAF);
   _hlRAF=requestAnimationFrame(()=>{updateHL();_hlRAF=null;});
 });
-document.addEventListener('mouseup',()=>{isDragging=false;});
+document.addEventListener('mouseup',()=>{
+  isDragging=false;
+  if(_gridMD){ _gridMD=false;
+    // 단일 셀 클릭이면 무장(편집가능 셀은 IME 준비). 범위 드래그면 스크롤 포커스 유지.
+    if(!editActive && curTab==='ledger' && selAnchor.r===selFocus.r && selAnchor.c===selFocus.c){
+      armCell(selAnchor.r, selAnchor.c);
+    }
+  }
+});
 
 // ══════════════════════════════════════════════
 // 편집
@@ -1534,6 +1544,99 @@ function startEdit(ri, ci, clearVal=false){
   updateHL();
 }
 
+// ══════════════════════════════════════════════
+// 무장(armed) 편집기 — 셀 선택만으로 편집가능 input에 포커스해 두어
+// 한글 IME가 "첫 글자부터" 조합되게 함(엔터/더블클릭 우회 불필요).
+// editInp에 담아두므로 기존 keydown/paste 게이트(ae!==editInp)가 그대로 통과.
+// ══════════════════════════════════════════════
+function _focusGrid(){ const s=document.getElementById('tbl-scroll'); if(s)s.focus(); }
+function _armBefore(e){ if(e.inputType && e.inputType.indexOf('insert')===0) promoteArm(); }
+
+function armCell(ri,ci){
+  if(_isReadOnly()){ _focusGrid(); return; }
+  if(ri<0||ri>=_rows.length||ci<0||ci>=DC.length){ _focusGrid(); return; }
+  const row=_rows[ri];
+  const isSplitChildNum=!!row?.splitParent&&(DC[ci]?.k==='income'||DC[ci]?.k==='expense');
+  // 무장 대상: 인라인 편집가능 셀만. 월/대분류(ro), 날짜/기재내용/금액(locked→모달)은 제외
+  if(isRO(ci) || (isLocked(ci)&&!isSplitChildNum)){ commitEdit(); _focusGrid(); return; }
+  commitEdit(); // 이전 편집/무장 정리(무장이면 저장 없이 해제)
+  selAnchor={r:ri,c:ci}; selFocus={r:ri,c:ci};
+  const col=DC[ci], td=getTd(ri,ci);
+  if(!td){ _focusGrid(); return; }
+  const isNum=col.k==='income'||col.k==='expense';
+  const val=isNum?fmt(num(row[col.k])):(row[col.k]||'');
+  td.innerHTML='';
+  const inp=document.createElement('input');
+  inp.className='cell-input'+(isNum?' nr':'');
+  inp.value=val;
+  inp.dataset.rowId=row.id; inp.dataset.ck=col.k;
+  td.appendChild(inp);
+  editInp=inp; editTd=td; editR=ri; editC=ci; editArmed=true; editActive=false;
+  inp.addEventListener('keydown', armedKD);
+  inp.addEventListener('compositionstart', promoteArm);
+  inp.addEventListener('beforeinput', _armBefore);
+  inp.focus(); inp.select(); // 전체선택 → 첫 타이핑이 값 대체(type-over)
+  updateHL(); // editActive=false → 파란(sel-anchor)
+}
+
+function disarmEditor(){
+  if(!editArmed||!editInp){ editArmed=false; return; }
+  const td=editTd, r=_rows[editR], col=DC[editC];
+  editArmed=false; const gone=editInp; editInp=null; editTd=null;
+  gone.removeEventListener('keydown', armedKD);
+  if(td&&r&&col){ // 저장 없이 셀 텍스트 원상복구
+    const isNum=col.k==='income'||col.k==='expense';
+    const disp=isNum?fmt(num(r[col.k])):r[col.k]||'';
+    let color='';
+    if(col.k==='income'&&num(r[col.k])>0)color='color:#1a7a4a';
+    if(col.k==='expense'&&num(r[col.k])>0)color='color:#c0392b';
+    td.innerHTML=`<div class="cv${isNum?' nr':''}" style="${color}">${disp}</div>`;
+  }
+}
+
+function promoteArm(){
+  if(!editArmed||!editInp)return;
+  editArmed=false; editActive=true;
+  const inp=editInp, r=_rows[editR], col=DC[editC], ri=editR, ci=editC;
+  inp.removeEventListener('keydown', armedKD);
+  inp.removeEventListener('compositionstart', promoteArm);
+  inp.removeEventListener('beforeinput', _armBefore);
+  if(col.t==='combo'){
+    // startEdit의 콤보 처리와 동일 — 초기엔 전체 목록, 입력 시 필터
+    setTimeout(()=>{ if(!editInp||editInp!==inp)return;
+      showDrop(inp, getComboOpts(col.combo,r,curCo), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
+    },0);
+    inp.addEventListener('input', ()=>{
+      const q=inp.value.toLowerCase();
+      showDrop(inp, getComboOpts(col.combo,r,curCo).filter(o=>!q||o.toLowerCase().includes(q)), val=>{inp.value=val;commitEdit();startEdit(ri+1,ci);});
+    });
+  }
+  inp.addEventListener('keydown', editKD);
+  updateHL(); // editActive=true → 노랑(editing)
+}
+
+function armedKD(e){
+  const ctrl=e.ctrlKey||e.metaKey;
+  // 문자/IME 키 → armed input이 직접 받아 조합. promote는 beforeinput/compositionstart 담당.
+  // 문서 gridKD의 "문자→편집시작+수동삽입"(첫글자 버그 경로) 차단 위해 stopPropagation.
+  if(!ctrl && !e.altKey && (e.key.length===1 || e.isComposing || e.keyCode===229 || e.key==='Process' || e.key==='Dead' || e.key==='Unidentified')){
+    e.stopPropagation();
+    return;
+  }
+  if(e.key==='Enter' && !e.shiftKey && !ctrl){ e.preventDefault(); e.stopPropagation(); promoteArm(); return; } // 편집 진입(값 유지)
+  if(e.key==='F2'){ e.preventDefault(); e.stopPropagation(); promoteArm(); return; }
+  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); disarmEditor(); _focusGrid(); return; }
+  // 그 외(방향키/Tab/Delete/Ctrl 단축키 등)는 문서 gridKD로 위임 → 이동 후 armCellIfIdle 재무장
+}
+
+function armCellIfIdle(){
+  if(editActive) return;
+  if(curTab!=='ledger') return;
+  if(selAnchor.r!==selFocus.r||selAnchor.c!==selFocus.c){ if(editArmed)commitEdit(); _focusGrid(); return; } // 범위 선택 중엔 무장 안 함
+  if(editArmed && editR===selAnchor.r && editC===selAnchor.c) return; // 이미 이 셀 무장됨
+  armCell(selAnchor.r, selAnchor.c);
+}
+
 function getComboOpts(combo,r,cid){
   const ac=getAc(cid),wl=getWl(cid),c4=getC4(cid),k1s=Object.keys(ac).filter(k=>!_isMetaKey(k));
   if(combo==='cat1')return k1s;
@@ -1554,6 +1657,7 @@ function getComboOpts(combo,r,cid){
 
 function commitEdit(silent=false){
   hideDrop();
+  if(editArmed){ disarmEditor(); return; } // 무장(미편집) 상태는 저장 없이 해제
   if(!editInp||!editTd)return;
   const id=editInp.dataset.rowId, ck=editInp.dataset.ck, val=editInp.value;
   const r=ST.rows.find(x=>x.id===id);
@@ -1594,6 +1698,7 @@ function commitEdit(silent=false){
 
 function cancelEdit(){
   hideDrop();
+  if(editArmed){ disarmEditor(); return; }
   if(!editInp||!editTd)return;
   const r=_rows[editR], col=DC[editC];
   if(r&&col){
@@ -1644,6 +1749,7 @@ document.addEventListener('keydown', (e)=>{
   // 거래내역 탭이 아니면 무시
   if(curTab!=='ledger') return;
   gridKD(e);
+  armCellIfIdle(); // 이동/작업 후 단일셀이면 재무장 (방향키→타이핑도 IME 첫글자 정상)
 });
 document.getElementById('tbl-scroll').addEventListener('scroll', ()=>{
   const el=document.getElementById('tbl-scroll');
