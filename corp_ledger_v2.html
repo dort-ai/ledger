@@ -3878,13 +3878,14 @@ function buildExitDelta(year){
       if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
       // 임대매출: 추정치 비례 차감 (여름 공실 예상 월은 추정치도 낮아 감소분도 자동으로 작아짐)
+      // 평균/비율 계산이라 소수점이 생기므로 정수(원 단위)로 반올림 처리
       if(revPct>0){
         const fcRev=getForecastVal(curCo||'__all__',year,'pnl','매출액::임대매출',m);
-        if(fcRev>0) add('pnl','매출액::임대매출',m,-revPct*fcRev);
+        if(fcRev>0) add('pnl','매출액::임대매출',m,-Math.round(revPct*fcRev));
       }
-      // 공과금·소모품: 룸당 25년 평균 차감 (공실 관계없이 발생)
+      // 공과금·소모품: 룸당 25년 평균 차감 (공실 관계없이 발생) — 정수 반올림
       if(rooms>0) for(const c of costCats){
-        if(perRoomCost[c.key]) add('pnl',c.key,m,-perRoomCost[c.key]*rooms);
+        if(perRoomCost[c.key]) add('pnl',c.key,m,-Math.round(perRoomCost[c.key]*rooms));
       }
     }
     if(dep>0&&depKey) add('cash',depKey,em,dep);
@@ -4505,6 +4506,103 @@ function importForecastXlsx(input, cid, year){
 }
 
 // 메인 렌더 함수
+// ── 기말잔액 그래프 ──────────────────────────
+// 기말잔액 행(bal_end)과 동일한 로직으로 12개월 누적 잔액 배열 계산 (표와 정확히 일치)
+function computeCashBalanceRunning(cid, year){
+  let base;
+  if(cid==='__all__'){
+    const allBases=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[year]);
+    base=allBases.some(b=>b!=null)?allBases.reduce((s,b)=>s+(b??0),0):null;
+  } else base=ST.cfBaseBalance?.[cid]?.[year]??null;
+  if(base==null) return null;
+  const items=buildCashFcItems(cid);
+  const balItem=items.find(it=>it.t==='bal_end');
+  if(!balItem) return null;
+  const keyToItem={}; items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
+  const effVal=(k,m)=>{
+    const it=keyToItem[k];
+    if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,m);
+    if(it&&isPastFcMonth(year,m)){ const act=getCfItemActual(cid,year,it._cfItem,m); if(act!==null) return act; }
+    let b = cid==='__all__'
+      ? ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,'cash',k,m),0)
+      : getForecastVal(cid,year,'cash',k,m);
+    if(_fcExitApplied&&!isPastFcMonth(year,m)){ const d=_fcExitDelta?.['cash']?.[k]?.[m]; if(d)b+=d; }
+    return b;
+  };
+  const running=[]; let acc=base;
+  for(let m=1;m<=12;m++){ acc+=balItem.ks.reduce((s,k)=>s+effVal(k,m),0); running.push(acc); }
+  return running;
+}
+// 퇴거 미반영/반영 두 시리즈를 함께 계산 (전역 토글을 잠시 바꿔 동일 로직 재사용 후 복원)
+function fcBalanceSeries(cid, year){
+  const savedApplied=_fcExitApplied, savedDelta=_fcExitDelta;
+  _fcExitApplied=false; const baseline=computeCashBalanceRunning(cid,year);
+  _fcExitApplied=true; _fcExitDelta=buildExitDelta(year); const scenario=computeCashBalanceRunning(cid,year);
+  _fcExitApplied=savedApplied; _fcExitDelta=savedDelta;
+  return {baseline, scenario};
+}
+function fcExitMonthsForYear(year){
+  const out={}; const branches=effBranches();
+  effExitPlan().forEach(ep=>{
+    if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
+    const p=ep.exitMonth.split('-'); const ey=Number(p[0]), em=Number(p[1]);
+    if(ey!==Number(year)) return;
+    if(!branches.find(x=>x.id===ep.id)) return;
+    out[em]=(out[em]||0)+1;
+  });
+  return out;
+}
+function renderFcBalanceChart(cid, year){
+  const {baseline, scenario}=fcBalanceSeries(cid, year);
+  if(!baseline){
+    return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:4px">📈 월별 기말잔액 추이</div>
+      <div style="font-size:12px;color:#aaa;padding:18px;text-align:center">현금흐름 탭에서 기초잔액을 입력하면 잔액 그래프가 표시됩니다</div></div>`;
+  }
+  const exitMonths=fcExitMonthsForYear(year);
+  const hasExit=Object.keys(exitMonths).length>0;
+  const all=baseline.concat(scenario);
+  let minV=Math.min(...all), maxV=Math.max(...all);
+  if(minV===maxV){ minV-=1; maxV+=1; }
+  const pad=(maxV-minV)*0.12; minV-=pad; maxV+=pad;
+  const W=1100,H=300,mL=94,mR=24,mT=30,mB=28, cW=W-mL-mR, cH=H-mT-mB;
+  const xFor=m=> mL+(m-1)/11*cW;
+  const yFor=v=> mT+(maxV-v)/(maxV-minV)*cH;
+  const fmtAxis=v=>{const a=Math.abs(v); if(a>=1e8)return (v/1e8).toFixed(1).replace(/\.0$/,'')+'억'; if(a>=1e4)return Math.round(v/1e4).toLocaleString('ko-KR')+'만'; return String(Math.round(v));};
+  let grid='',yl='';
+  for(let i=0;i<=5;i++){ const v=minV+(maxV-minV)*i/5, y=yFor(v);
+    grid+=`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#eee" stroke-width="1"/>`;
+    yl+=`<text x="${mL-8}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="#999">${fmtAxis(v)}</text>`; }
+  if(minV<0&&maxV>0){ const yz=yFor(0); grid+=`<line x1="${mL}" y1="${yz.toFixed(1)}" x2="${W-mR}" y2="${yz.toFixed(1)}" stroke="#bbb" stroke-width="1"/>`; }
+  let xl='';
+  for(let m=1;m<=12;m++){ const p=isPastFcMonth(year,m); xl+=`<text x="${xFor(m).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="10" fill="${p?'#bbb':'#3a6bcc'}">${m}월</text>`; }
+  let refs='';
+  Object.entries(exitMonths).forEach(([m,cnt])=>{ const x=xFor(Number(m));
+    refs+=`<line x1="${x.toFixed(1)}" y1="${mT}" x2="${x.toFixed(1)}" y2="${H-mB}" stroke="#f87171" stroke-dasharray="3 3" stroke-width="1"/><text x="${x.toFixed(1)}" y="${(mT-3)}" text-anchor="middle" font-size="9" fill="#ef4444">${cnt}개 철수</text>`; });
+  const ptsB=baseline.map((v,i)=>`${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
+  const ptsS=scenario.map((v,i)=>`${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
+  let dots='',hovers=''; const colW=cW/11;
+  for(let m=1;m<=12;m++){ const bx=xFor(m), by=yFor(baseline[m-1]), sy=yFor(scenario[m-1]);
+    dots+=`<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="2.5" fill="#9aa0a6"/>`;
+    if(hasExit) dots+=`<circle cx="${bx.toFixed(1)}" cy="${sy.toFixed(1)}" r="2.5" fill="#16a34a"/>`;
+    const diff=scenario[m-1]-baseline[m-1];
+    const title=`${m}월\n퇴거 미반영: ${fmt(Math.round(baseline[m-1]))}원`+(hasExit?`\n퇴거 반영: ${fmt(Math.round(scenario[m-1]))}원\n차이: ${diff>=0?'+':''}${fmt(Math.round(diff))}원`:'');
+    hovers+=`<rect x="${(bx-colW/2).toFixed(1)}" y="${mT}" width="${colW.toFixed(1)}" height="${cH}" fill="transparent"><title>${title}</title></rect>`;
+  }
+  const scenarioLine=hasExit?`<polyline points="${ptsS}" fill="none" stroke="#16a34a" stroke-width="2.5"/>`:'';
+  const legend=`<div style="display:flex;gap:16px;font-size:11px;color:#555;margin-top:6px;flex-wrap:wrap;align-items:center">
+    <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;border-top:2px solid #9aa0a6"></span>퇴거 미반영(현재)</span>
+    ${hasExit?'<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;border-top:2px solid #16a34a"></span>퇴거계획 반영</span><span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;border-top:1px dashed #f87171"></span>철수 시점</span>':'<span style="color:#aaa">· 이 연도에 반영할 퇴거계획 없음 (두 선 동일)</span>'}
+  </div>`;
+  return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:16px">
+    <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:8px">📈 월별 기말잔액 추이 — 퇴거계획 반영 전후 비교</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
+      ${grid}${yl}${refs}
+      <polyline points="${ptsB}" fill="none" stroke="#9aa0a6" stroke-width="1.5"/>
+      ${scenarioLine}${dots}${xl}${hovers}
+    </svg>${legend}</div>`;
+}
+
 function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
   const cid=curCo; const year=_fcYear;
@@ -4539,6 +4637,7 @@ function renderForecast(){
         </label>
       </div>
     </div>
+    ${renderFcBalanceChart(cid,year)}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
