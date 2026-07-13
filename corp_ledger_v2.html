@@ -791,7 +791,9 @@ async function saveToFirestore(){
     const newMonths=[...new Set(ST.rows.map(r=>r.month).filter(Boolean))].sort();
     const mergedMonths=[...new Set([...(ST._metaMonths||[]),...newMonths])].sort();
     ST._metaMonths=mergedMonths;
-    await db.doc(`users/${uid}`).set({
+    // 전대보증금(deposits)은 구글시트 앱스크립트가 소스 → 앱이 덮어쓰지 않도록 저장에서 제외.
+    // update()는 명시한 필드만 통째로 교체하고 나머지(deposits)는 그대로 둠. 문서가 없을 때만 최초 set로 생성.
+    const metaData={
       companies:   ST.companies||[],
       learnRules:  ST.fixedRules||[],
       learnUploads:ST.learnUploads||[],
@@ -801,12 +803,18 @@ async function saveToFirestore(){
       cfBaseBalance:   ST.cfBaseBalance||{},
       intercompanyCats:ST.intercompanyCats||[],
       forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
-      deposits:        ST.deposits||[],
       branches:        ST.branches||[],
       exitPlan:        ST.exitPlan||[],
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    try{
+      await db.doc(`users/${uid}`).update(metaData);
+    }catch(e){
+      if(e.code==='not-found'){
+        await db.doc(`users/${uid}`).set({...metaData, deposits: ST.deposits||[]}); // 문서 최초 생성 시에만 deposits 포함
+      } else throw e;
+    }
     // dirty한 월만 저장 — 미로드 + 메모리에도 행 없는 월만 스킵 (빈 배열 덮어쓰기 방지, 신규 임포트 월은 항상 저장)
     const deferred=[];
     for(const month of _dirtyMonths){
