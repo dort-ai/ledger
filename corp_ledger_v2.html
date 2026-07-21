@@ -5079,10 +5079,12 @@ function depRetYear(d){
   m=s.match(/^(\d{2})\D/); if(m)return 2000+(+m[1]);
   const t=new Date(s); return isNaN(t)?null:t.getFullYear();
 }
-// 반환완료 검산 차이: 보증금 - (반환금액+차감+수수료). 0이 아니면 데이터 불일치
+// 검산 차이: 보증금 - (반환금액+차감). 수수료는 우리 비용이라 제외. 0이 아니면 데이터 불일치
 function depResidual(d){
-  return num(d.보증금)-(num(d.반환금액)+num(d.보증금차감)+num(d.송금수수료));
+  return num(d.보증금)-(num(d.반환금액)+num(d.보증금차감));
 }
+// 반환된 것으로 집계하는 상태 (반환중도 포함)
+function depIsReturned(d){ return d.상태==='반환완료'||d.상태==='반환중'; }
 function toggleDepPastYear(y){
   if(_depPastOpen.has(y))_depPastOpen.delete(y);else _depPastOpen.add(y);
   renderDeposits();
@@ -5109,7 +5111,7 @@ function depTableHtml(rows,emptyMsg){
     <tbody>
       ${rows.length===0?`<tr><td colspan="12" style="text-align:center;padding:24px;color:#aaa;font-size:12px">${emptyMsg||'데이터가 없습니다'}</td></tr>`
       :rows.map(d=>{
-        const res=d.상태==='반환완료'?depResidual(d):0;
+        const res=depIsReturned(d)?depResidual(d):0;
         return `
         <tr style="border-bottom:1px solid #ebebeb;font-size:12px${res!==0?';background:#fff5f5':''}" onmouseover="this.style.background='#fafaf8'" onmouseout="this.style.background='${res!==0?'#fff5f5':''}'">
           <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.호점||''}</td>
@@ -5149,13 +5151,13 @@ function renderDeposits(){
     return true;
   }).sort((a,b)=>(b.입금일||'').localeCompare(a.입금일||''));
 
-  // 요약: 총액(현재 뷰 전체) / 반환(올해 반환완료) / 차감 / 잔여(보유중+반환중)
+  // 요약: 총액(현재 뷰 전체) / 반환(반환완료+반환중) / 차감 / 잔여(보유중만)
   const total=curDeps.reduce((s,d)=>s+num(d.보증금),0);
-  const returned=curDeps.filter(d=>d.상태==='반환완료');
+  const returned=curDeps.filter(depIsReturned);
   const retSum=returned.reduce((s,d)=>s+num(d.반환금액),0);
   const dedSum=returned.reduce((s,d)=>s+num(d.보증금차감),0);
   const feeSum=returned.reduce((s,d)=>s+num(d.송금수수료),0);
-  const remain=curDeps.filter(d=>d.상태!=='반환완료').reduce((s,d)=>s+num(d.보증금),0);
+  const remain=curDeps.filter(d=>d.상태==='보유중').reduce((s,d)=>s+num(d.보증금),0);
   const badRows=returned.filter(d=>depResidual(d)!==0);
   const diffSum=badRows.reduce((s,d)=>s+depResidual(d),0);
 
@@ -5165,11 +5167,11 @@ function renderDeposits(){
   document.getElementById('deposits-content').innerHTML=`
     <div class="summary" style="grid-template-columns:repeat(4,1fr);max-width:880px;margin-bottom:12px">
       <div class="sc"><div class="sc-l">${YY}년 보유 보증금 총액</div><div class="sc-v">${fmt(total)}원</div></div>
-      <div class="sc"><div class="sc-l">반환된 보증금 (${YY}년)</div><div class="sc-v">${fmt(retSum)}원</div></div>
-      <div class="sc"><div class="sc-l">차감액</div><div class="sc-v">${fmt(dedSum)}원</div>${feeSum?`<div style="font-size:10px;color:#888">송금수수료 ${fmt(feeSum)}원 별도</div>`:''}</div>
-      <div class="sc"><div class="sc-l">${YY}년 잔여 보증금</div><div class="sc-v g">${fmt(remain)}원</div><div style="font-size:10px;color:#888">보유중+반환중</div></div>
+      <div class="sc"><div class="sc-l">반환된 보증금 (${YY}년)</div><div class="sc-v">${fmt(retSum)}원</div><div style="font-size:10px;color:#888">반환완료+반환중</div></div>
+      <div class="sc"><div class="sc-l">차감액</div><div class="sc-v">${fmt(dedSum)}원</div>${feeSum?`<div style="font-size:10px;color:#888">송금수수료 ${fmt(feeSum)}원(비용, 검산제외)</div>`:''}</div>
+      <div class="sc"><div class="sc-l">${YY}년 잔여 보증금</div><div class="sc-v g">${fmt(remain)}원</div><div style="font-size:10px;color:#888">보유중</div></div>
     </div>
-    ${badRows.length?`<div style="font-size:11px;color:#d33;margin:0 0 10px">⚠ 검산 불일치 ${badRows.length}건 — 보증금 ≠ 반환금액+차감+수수료, 차이 합계 ${fmt(diffSum)}원 (해당 행 빨간 배경·⚠ 표시)</div>`:''}
+    ${badRows.length?`<div style="font-size:11px;color:#d33;margin:0 0 10px">⚠ 검산 불일치 ${badRows.length}건 — 보증금 ≠ 반환금액+차감 (수수료 제외), 차이 합계 ${fmt(diffSum)}원 (해당 행 빨간 배경·⚠ 표시)</div>`:''}
     <div class="toolbar">
       <select id="dep-f-listing" onchange="renderDeposits()" style="min-width:120px">
         <option value="">전체 호점</option>
