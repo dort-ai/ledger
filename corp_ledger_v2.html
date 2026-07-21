@@ -804,17 +804,16 @@ async function saveToFirestore(){
       cfBaseBalance:   ST.cfBaseBalance||{},
       intercompanyCats:ST.intercompanyCats||[],
       forecast:        Object.fromEntries(Object.entries(ST.forecast||{}).filter(([k])=>k!=='__all__')),
-      exitPlan:        ST.exitPlan||[],
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     };
-    // branches도 deposits처럼 구글시트가 소스 → 앱은 쓰지 않음 (덮어쓰기 충돌 방지).
-    // exitPlan은 앱(퇴거정보 수정 모달)이 소스라 유지.
+    // deposits·branches·exitPlan은 구글시트 앱스크립트가 소스 → 앱은 쓰지 않음 (덮어쓰기 충돌 방지).
+    // (exitPlan 편집 모달 openBranchEdit는 dead code라 앱이 실제로 안 씀. 되쓰면 시트의 상태·퇴거월 변경이 stale 값에 막힘.)
     try{
       await db.doc(`users/${uid}`).update(metaData);
     }catch(e){
       if(e.code==='not-found'){
-        await db.doc(`users/${uid}`).set({...metaData, deposits: ST.deposits||[], branches: ST.branches||[]}); // 문서 최초 생성 시에만 포함
+        await db.doc(`users/${uid}`).set({...metaData, deposits: ST.deposits||[], branches: ST.branches||[], exitPlan: ST.exitPlan||[]}); // 문서 최초 생성 시에만 포함
       } else throw e;
     }
     // dirty한 월만 저장 — 미로드 + 메모리에도 행 없는 월만 스킵 (빈 배열 덮어쓰기 방지, 신규 임포트 월은 항상 저장)
