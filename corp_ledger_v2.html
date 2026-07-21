@@ -5344,6 +5344,55 @@ function fmtB(n){
   return fmt(n);
 }
 
+// ══════════════════════════════════════════════
+// 셀 선택 합계 — 어느 표에서든 숫자를 마우스로 드래그하면 우하단에 개수·합계·평균 표시
+// (엑셀 상태표시줄 방식. 기존 로직 비침습 — window 선택 텍스트만 파싱)
+// ══════════════════════════════════════════════
+(function(){
+  const style=document.createElement('style');
+  style.textContent=`
+    #sel-sum-badge{position:fixed;right:16px;bottom:16px;z-index:99999;background:#1d6adf;color:#fff;
+      font-size:12px;padding:8px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.22);
+      pointer-events:none;opacity:0;transform:translateY(6px);transition:opacity .12s,transform .12s;
+      font-variant-numeric:tabular-nums;white-space:nowrap;font-family:inherit}
+    #sel-sum-badge.show{opacity:1;transform:translateY(0)}
+    #sel-sum-badge .lbl{opacity:.75;margin:0 2px}
+    #sel-sum-badge b{font-weight:700;font-size:13px}`;
+  document.head.appendChild(style);
+  const badge=document.createElement('div');
+  badge.id='sel-sum-badge';
+  document.body.appendChild(badge);
+
+  // 공백/줄바꿈/탭으로 나눈 뒤 '순수 숫자' 토큰만 합산 (날짜 2026-07-01·ID 등은 하이픈 때문에 제외)
+  function parseNums(text){
+    const nums=[];
+    text.split(/[\s ]+/).forEach(raw=>{
+      let t=raw.replace(/[원₩,%\s]/g,'');
+      if(!t)return;
+      let neg=false;
+      if(/^\(.+\)$/.test(t)){ neg=true; t=t.slice(1,-1); } // (1,000) = 회계식 음수
+      if(/^-?\d+(\.\d+)?$/.test(t)){
+        let v=parseFloat(t); if(neg)v=-Math.abs(v);
+        nums.push(v);
+      }
+    });
+    return nums;
+  }
+  const fmtNum=n=>(Math.round(n*100)/100).toLocaleString('ko-KR');
+  let timer=0;
+  function update(){
+    const sel=window.getSelection();
+    const text=sel?sel.toString():'';
+    if(!text){ badge.classList.remove('show'); return; }
+    const nums=parseNums(text);
+    if(nums.length<2){ badge.classList.remove('show'); return; } // 2개 이상 선택 시에만
+    const sum=nums.reduce((s,v)=>s+v,0);
+    badge.innerHTML=`<span class="lbl">${nums.length}개</span> 합계 <b>${fmtNum(sum)}</b><span class="lbl">· 평균 ${fmtNum(sum/nums.length)}</span>`;
+    badge.classList.add('show');
+  }
+  document.addEventListener('selectionchange',()=>{ clearTimeout(timer); timer=setTimeout(update,80); });
+})();
+
 </script>
 </body>
 </html>
