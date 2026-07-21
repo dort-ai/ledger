@@ -4733,17 +4733,31 @@ function renderBranches(){
   const epMap={};
   exitPlan.forEach(e=>{ epMap[normBrId(e.id)]=e; });
 
+  // 월 문자열 → 비교용 정수(YYYYMM). 'YYYY-MM','YY-MM','YYYY-M','25.06' 등 관용 처리.
+  function monthNum(s){
+    s=String(s||'').trim(); if(!s) return null;
+    const m=s.match(/(\d{2,4})\D+(\d{1,2})/); if(!m) return null;
+    let y=parseInt(m[1],10); if(y<100) y+=2000;
+    let mo=parseInt(m[2],10); if(mo<1||mo>12) return null;
+    return y*100+mo;
+  }
+  // 통장정리 기준: 오늘 기준 '전월'까지는 정리 완료 → 이 값 이하의 퇴거월은 완료로 간주.
+  // (getMonth()는 0-based라 현재월 그대로가 곧 1-based 전월. 1월이면 작년 12월.)
+  const _cutoffNum=(()=>{ const d=new Date(); let y=d.getFullYear(), pm=d.getMonth(); if(pm===0){y-=1;pm=12;} return y*100+pm; })();
+
   // 병합
   const merged=branches.map(b=>{
     const ep=epMap[normBrId(b.id)]||null;
     const hasSheetExit=!!(b.sheetExitDate);
-    const rawStatus=ep&&ep.status?ep.status:(hasSheetExit?'완료':'');
+    let rawStatus=ep&&ep.status?ep.status:(hasSheetExit?'완료':'');
     // 퇴거월: 완료 지점만 만료시트 날짜 상속.
     let exitMonth=ep&&ep.exitMonth?ep.exitMonth:'';
     if(!exitMonth && rawStatus==='완료') exitMonth=b.sheetExitDate||'';
-    // 진행중·확정·완료만 퇴거월 표시. 운영중·진행예정(앱에선 운영중 취급)은 날짜 무효.
-    // (진행예정=월 미기재 규칙이라 스크립트가 이미 빈값을 주지만, 카테고리로도 이중 차단.)
+    // 진행중·확정·완료만 퇴거월 사용. 운영중·진행예정은 날짜 무시(의미 없는 날짜 제거).
     if(!(rawStatus==='완료'||rawStatus==='확정'||rawStatus.includes('진행중'))) exitMonth='';
+    // 통장정리 기준: 퇴거월이 전월 이하로 이미 지났으면 상태와 무관하게 '완료' 처리.
+    const _em=monthNum(exitMonth);
+    if(_em!==null && _em<=_cutoffNum && (rawStatus==='확정'||rawStatus.includes('진행중'))) rawStatus='완료';
     return{
       ...b,
       deposit:   Number(b.deposit||0),
