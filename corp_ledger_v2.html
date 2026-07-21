@@ -5070,28 +5070,106 @@ function saveBranchEdit(){
 // 전대보증금 대장
 // ══════════════════════════════════════════════
 let _depEditId=null;
+let _depPastOpen=new Set(); // 과거내역(연도별) 펼침 상태
+
+// 반환일자에서 연도 추출 ('2025-03-01' / '25.03.01' / Date 파싱 순으로 시도)
+function depRetYear(d){
+  const s=String(d.반환일자||'').trim(); if(!s)return null;
+  let m=s.match(/(20\d{2})/); if(m)return +m[1];
+  m=s.match(/^(\d{2})\D/); if(m)return 2000+(+m[1]);
+  const t=new Date(s); return isNaN(t)?null:t.getFullYear();
+}
+// 반환완료 검산 차이: 보증금 - (반환금액+차감+수수료). 0이 아니면 데이터 불일치
+function depResidual(d){
+  return num(d.보증금)-(num(d.반환금액)+num(d.보증금차감)+num(d.송금수수료));
+}
+function toggleDepPastYear(y){
+  if(_depPastOpen.has(y))_depPastOpen.delete(y);else _depPastOpen.add(y);
+  renderDeposits();
+}
+
+function depTableHtml(rows,emptyMsg){
+  return `<table style="width:100%;table-layout:fixed">
+    <thead>
+      <tr style="background:#f0f0ee;font-size:10px;color:#444">
+        <th style="padding:5px 6px;text-align:left;width:120px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">호점</th>
+        <th style="padding:5px 6px;text-align:left;width:130px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">이체이름</th>
+        <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">상태</th>
+        <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">보증금</th>
+        <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">입금일</th>
+        <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">체크아웃</th>
+        <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환일자</th>
+        <th style="padding:5px 6px;text-align:right;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">차감</th>
+        <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환금액</th>
+        <th style="padding:5px 6px;text-align:right;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">수수료</th>
+        <th style="padding:5px 6px;text-align:left;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">비고</th>
+        <th style="padding:5px 6px;text-align:center;width:60px;border-bottom:2px solid #c0c0c0"></th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.length===0?`<tr><td colspan="12" style="text-align:center;padding:24px;color:#aaa;font-size:12px">${emptyMsg||'데이터가 없습니다'}</td></tr>`
+      :rows.map(d=>{
+        const res=d.상태==='반환완료'?depResidual(d):0;
+        return `
+        <tr style="border-bottom:1px solid #ebebeb;font-size:12px${res!==0?';background:#fff5f5':''}" onmouseover="this.style.background='#fafaf8'" onmouseout="this.style.background='${res!==0?'#fff5f5':''}'">
+          <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.호점||''}</td>
+          <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.이체이름||''}</td>
+          <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb"><span class="dep-badge ${d.상태||'보유중'}">${d.상태||'보유중'}</span></td>
+          <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${fmt(d.보증금)}</td>
+          <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.입금일||''}</td>
+          <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.체크아웃||''}</td>
+          <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.반환일자||''}</td>
+          <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.보증금차감?fmt(d.보증금차감):''}</td>
+          <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.반환금액?fmt(d.반환금액):''}${res!==0?`<div style="color:#d33;font-size:10px;font-weight:600">⚠ 검산차 ${fmt(res)}</div>`:''}</td>
+          <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.송금수수료?fmt(d.송금수수료):''}</td>
+          <td style="padding:4px 6px;border-right:1px solid #ebebeb;color:#666">${d.비고||''}</td>
+          <td style="padding:4px 6px;text-align:center">
+            <button class="btn-sm dep-edit-btn" onclick="openDepositForm('${d.id}')">수정</button>
+            <button class="btn-sm btn-d dep-del-btn" onclick="deleteDeposit('${d.id}')">삭제</button>
+          </td>
+        </tr>`;}).join('')}
+    </tbody>
+  </table>`;
+}
 
 function renderDeposits(){
   const deps=ST.deposits||[];
+  const CUR_YEAR=new Date().getFullYear(), YY=String(CUR_YEAR).slice(2);
   const listingFilter=document.getElementById('dep-f-listing')?.value||'';
   const statusFilter=document.getElementById('dep-f-status')?.value||'';
 
-  const filtered=deps.filter(d=>{
+  // 과거 = 반환완료 + 반환일자 연도가 작년 이전. 반환일자 없는 반환완료는 현재 뷰에 남겨 눈에 띄게
+  const isPast=d=>{ if(d.상태!=='반환완료')return false; const y=depRetYear(d); return y!==null&&y<CUR_YEAR; };
+  const curDeps=deps.filter(d=>!isPast(d));
+  const pastDeps=deps.filter(isPast);
+
+  const filtered=curDeps.filter(d=>{
     if(listingFilter&&d.호점!==listingFilter)return false;
     if(statusFilter&&d.상태!==statusFilter)return false;
     return true;
-  });
+  }).sort((a,b)=>(b.입금일||'').localeCompare(a.입금일||''));
 
-  const total=deps.reduce((s,d)=>s+num(d.보증금),0);
-  const remain=deps.filter(d=>d.상태==='보유중').reduce((s,d)=>s+num(d.보증금),0);
+  // 요약: 총액(현재 뷰 전체) / 반환(올해 반환완료) / 차감 / 잔여(보유중+반환중)
+  const total=curDeps.reduce((s,d)=>s+num(d.보증금),0);
+  const returned=curDeps.filter(d=>d.상태==='반환완료');
+  const retSum=returned.reduce((s,d)=>s+num(d.반환금액),0);
+  const dedSum=returned.reduce((s,d)=>s+num(d.보증금차감),0);
+  const feeSum=returned.reduce((s,d)=>s+num(d.송금수수료),0);
+  const remain=curDeps.filter(d=>d.상태!=='반환완료').reduce((s,d)=>s+num(d.보증금),0);
+  const badRows=returned.filter(d=>depResidual(d)!==0);
+  const diffSum=badRows.reduce((s,d)=>s+depResidual(d),0);
 
   const listings=[...new Set(deps.map(d=>d.호점).filter(Boolean))].sort();
+  const pastYears=[...new Set(pastDeps.map(depRetYear))].sort((a,b)=>b-a);
 
   document.getElementById('deposits-content').innerHTML=`
-    <div class="summary" style="grid-template-columns:repeat(2,1fr);max-width:480px;margin-bottom:12px">
-      <div class="sc"><div class="sc-l">보증금 총액</div><div class="sc-v">${fmt(total)}원</div></div>
-      <div class="sc"><div class="sc-l">잔여보증금 (보유중)</div><div class="sc-v g">${fmt(remain)}원</div></div>
+    <div class="summary" style="grid-template-columns:repeat(4,1fr);max-width:880px;margin-bottom:12px">
+      <div class="sc"><div class="sc-l">${YY}년 보유 보증금 총액</div><div class="sc-v">${fmt(total)}원</div></div>
+      <div class="sc"><div class="sc-l">반환된 보증금 (${YY}년)</div><div class="sc-v">${fmt(retSum)}원</div></div>
+      <div class="sc"><div class="sc-l">차감액</div><div class="sc-v">${fmt(dedSum)}원</div>${feeSum?`<div style="font-size:10px;color:#888">송금수수료 ${fmt(feeSum)}원 별도</div>`:''}</div>
+      <div class="sc"><div class="sc-l">${YY}년 잔여 보증금</div><div class="sc-v g">${fmt(remain)}원</div><div style="font-size:10px;color:#888">보유중+반환중</div></div>
     </div>
+    ${badRows.length?`<div style="font-size:11px;color:#d33;margin:0 0 10px">⚠ 검산 불일치 ${badRows.length}건 — 보증금 ≠ 반환금액+차감+수수료, 차이 합계 ${fmt(diffSum)}원 (해당 행 빨간 배경·⚠ 표시)</div>`:''}
     <div class="toolbar">
       <select id="dep-f-listing" onchange="renderDeposits()" style="min-width:120px">
         <option value="">전체 호점</option>
@@ -5110,48 +5188,31 @@ function renderDeposits(){
       </div>
     </div>
     <div class="tbl-wrap">
-      <div style="overflow:auto;max-height:calc(100vh - 280px)">
-        <table style="width:100%;table-layout:fixed">
-          <thead>
-            <tr style="background:#f0f0ee;font-size:10px;color:#444">
-              <th style="padding:5px 6px;text-align:left;width:120px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">호점</th>
-              <th style="padding:5px 6px;text-align:left;width:130px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">이체이름</th>
-              <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">상태</th>
-              <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">보증금</th>
-              <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">입금일</th>
-              <th style="padding:5px 6px;text-align:center;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">체크아웃</th>
-              <th style="padding:5px 6px;text-align:center;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환일자</th>
-              <th style="padding:5px 6px;text-align:right;width:90px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">차감</th>
-              <th style="padding:5px 6px;text-align:right;width:100px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">반환금액</th>
-              <th style="padding:5px 6px;text-align:right;width:80px;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">수수료</th>
-              <th style="padding:5px 6px;text-align:left;border-right:1px solid #d5d5d5;border-bottom:2px solid #c0c0c0">비고</th>
-              <th style="padding:5px 6px;text-align:center;width:60px;border-bottom:2px solid #c0c0c0"></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filtered.length===0?`<tr><td colspan="12" style="text-align:center;padding:24px;color:#aaa;font-size:12px">데이터가 없습니다</td></tr>`
-            :filtered.sort((a,b)=>(b.입금일||'').localeCompare(a.입금일||'')).map(d=>`
-              <tr style="border-bottom:1px solid #ebebeb;font-size:12px" onmouseover="this.style.background='#fafaf8'" onmouseout="this.style.background=''">
-                <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.호점||''}</td>
-                <td style="padding:4px 6px;border-right:1px solid #ebebeb">${d.이체이름||''}</td>
-                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb"><span class="dep-badge ${d.상태||'보유중'}">${d.상태||'보유중'}</span></td>
-                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${fmt(d.보증금)}</td>
-                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.입금일||''}</td>
-                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.체크아웃||''}</td>
-                <td style="padding:4px 6px;text-align:center;border-right:1px solid #ebebeb">${d.반환일자||''}</td>
-                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.보증금차감?fmt(d.보증금차감):''}</td>
-                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.반환금액?fmt(d.반환금액):''}</td>
-                <td style="padding:4px 6px;text-align:right;border-right:1px solid #ebebeb;font-variant-numeric:tabular-nums">${d.송금수수료?fmt(d.송금수수료):''}</td>
-                <td style="padding:4px 6px;border-right:1px solid #ebebeb;color:#666">${d.비고||''}</td>
-                <td style="padding:4px 6px;text-align:center">
-                  <button class="btn-sm dep-edit-btn" onclick="openDepositForm('${d.id}')">수정</button>
-                  <button class="btn-sm btn-d dep-del-btn" onclick="deleteDeposit('${d.id}')">삭제</button>
-                </td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
+      <div style="overflow:auto;max-height:calc(100vh - 340px)">
+        ${depTableHtml(filtered)}
       </div>
-    </div>`;
+    </div>
+    ${pastDeps.length?`
+    <div style="margin-top:18px">
+      <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px">📁 과거내역 보기 (연도별) — ${CUR_YEAR-1}년 이전 반환완료 ${pastDeps.length}건</div>
+      ${pastYears.map(y=>{
+        const rows=pastDeps.filter(d=>depRetYear(d)===y).sort((a,b)=>(b.반환일자||'').localeCompare(a.반환일자||''));
+        const t=rows.reduce((s,d)=>s+num(d.보증금),0);
+        const r=rows.reduce((s,d)=>s+num(d.반환금액),0);
+        const dd=rows.reduce((s,d)=>s+num(d.보증금차감),0);
+        const f=rows.reduce((s,d)=>s+num(d.송금수수료),0);
+        const open=_depPastOpen.has(y);
+        return `
+        <div style="border:1px solid #e3e3e0;border-radius:8px;margin-bottom:6px;overflow:hidden">
+          <div onclick="toggleDepPastYear(${y})" style="cursor:pointer;padding:8px 12px;background:#f7f7f5;font-size:12px;display:flex;gap:12px;align-items:center">
+            <span style="font-weight:700">${open?'▾':'▸'} ${y}년</span>
+            <span style="color:#888">${rows.length}건</span>
+            <span style="color:#666">보증금 ${fmt(t)} · 반환 ${fmt(r)} · 차감 ${fmt(dd)}${f?` · 수수료 ${fmt(f)}`:''}</span>
+          </div>
+          ${open?`<div style="overflow:auto;max-height:400px">${depTableHtml(rows)}</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>`:''}`;
 }
 
 function openDepositForm(id){
