@@ -1100,6 +1100,7 @@ function startRealtimeSheetSync(){
     let changed=false;
     if(JSON.stringify(m.deposits||[])!==JSON.stringify(ST.deposits||[])){ ST.deposits=m.deposits||[]; changed=true; }
     if(JSON.stringify(m.branches||[])!==JSON.stringify(ST.branches||[])){ ST.branches=m.branches||[]; changed=true; }
+    if(JSON.stringify(m.exitPlan||[])!==JSON.stringify(ST.exitPlan||[])){ ST.exitPlan=m.exitPlan||[]; changed=true; }
     if(!changed) return;
     if(curTab==='deposits')renderDeposits();
     else if(curTab==='branches')renderBranches();
@@ -4737,8 +4738,12 @@ function renderBranches(){
   const merged=branches.map(b=>{
     const ep=epMap[normBrId(b.id)]||null;
     const hasSheetExit=!!(b.sheetExitDate);
-    const exitMonth=ep&&ep.exitMonth?ep.exitMonth:(b.sheetExitDate||'');
     const rawStatus=ep&&ep.status?ep.status:(hasSheetExit?'완료':'');
+    // 퇴거월: 완료 지점만 만료시트 날짜 상속. 진행중(미확정)은 날짜를 표시하지 않음
+    // → 시트에 년만 적혀 있거나 앱스크립트가 반쪽 날짜를 넘겨도 앱에서 날짜가 새지 않게 차단.
+    let exitMonth=ep&&ep.exitMonth?ep.exitMonth:'';
+    if(!exitMonth && rawStatus==='완료') exitMonth=b.sheetExitDate||'';
+    if(rawStatus.includes('진행중')) exitMonth=''; // 미확정은 퇴거월 무효
     return{
       ...b,
       deposit:   Number(b.deposit||0),
