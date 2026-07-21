@@ -3866,8 +3866,20 @@ function statusCatGlobal(raw){
   return '운영중';
 }
 
+// 지점현황/퇴거계획을 소유한 법인(홈스인코리아) id. 이름에 '홈스' 포함으로 식별.
+function homesCoId(){
+  const c=(ST.companies||[]).find(c=>String(c.name||'').includes('홈스'));
+  return c?c.id:null;
+}
+
 function buildExitDelta(year){
   const d={pnl:{},cash:{}};
+  // 퇴거계획은 홈스인코리아 전용. 중개법인 등 다른 법인 '단독 보기'에서는 아무 반영도 하지 않음
+  // (branches/exitPlan은 홈스 소유인데 예전엔 어느 법인 추정에도 보증금 현금이 잡히던 중복 오류).
+  // 전체 합산(__all__)은 홈스 몫이 포함되므로 반영. 추정치도 항상 홈스 기준으로 조회.
+  const homesId=homesCoId();
+  if(homesId && curCo && curCo!=='__all__' && curCo!==homesId) return d;
+  const fcCid = homesId || curCo || '__all__';
   const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
   const exitPlan=effExitPlan();
   function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; }
@@ -3887,7 +3899,7 @@ function buildExitDelta(year){
     .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
     .reduce((s,b)=>s+Number(b.rooms||0),0);
   // 계정과목에서 cat2 → 'cat1::cat2' 키 조회 (cat1 하드코딩 없이 동적 매칭)
-  const _pnlItems=buildPnlItems(curCo||'__all__');
+  const _pnlItems=buildPnlItems(fcCid);
   const pnlKeyOf=cat2=>{ const it=_pnlItems.find(x=>x.t==='i'&&x.cat2===cat2); return it?it.k:null; };
   // 퇴거 시 '빠진 룸 비율'만큼 추정치에서 비례 차감할 변동비 (통신비는 제외 — 퇴거해도 그대로 유지)
   const propCostKeys=['지점공과금','지점소모품','청소비'].map(pnlKeyOf).filter(Boolean);
@@ -3909,12 +3921,12 @@ function buildExitDelta(year){
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
       if(revPct>0){
         // 임대매출: 비율만큼 감소 (매출은 양수 저장 → 음수 delta). 소수점은 원 단위 반올림.
-        const fcRev=getForecastVal(curCo||'__all__',year,'pnl',revKey,m);
+        const fcRev=getForecastVal(fcCid,year,'pnl',revKey,m);
         if(fcRev>0) add('pnl',revKey,m,-Math.round(revPct*fcRev));
         // 지점공과금·지점소모품·청소비: 빠진 비율만큼 추정치에서 감소.
         // 비용은 음수 저장이라 감소는 양수 delta — 매출과 동일하게 -round(revPct*추정치)로 통일 처리됨.
         for(const ck of propCostKeys){
-          const fcCost=getForecastVal(curCo||'__all__',year,'pnl',ck,m);
+          const fcCost=getForecastVal(fcCid,year,'pnl',ck,m);
           if(fcCost!==0) add('pnl',ck,m,-Math.round(revPct*fcCost));
         }
       }
