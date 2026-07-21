@@ -4738,11 +4738,12 @@ function renderBranches(){
     const ep=epMap[normBrId(b.id)]||null;
     const hasSheetExit=!!(b.sheetExitDate);
     const rawStatus=ep&&ep.status?ep.status:(hasSheetExit?'완료':'');
-    // 퇴거월: 완료 지점만 만료시트 날짜 상속. 진행중(미확정)은 날짜를 표시하지 않음
-    // → 시트에 년만 적혀 있거나 앱스크립트가 반쪽 날짜를 넘겨도 앱에서 날짜가 새지 않게 차단.
+    // 퇴거월: 완료 지점만 만료시트 날짜 상속.
     let exitMonth=ep&&ep.exitMonth?ep.exitMonth:'';
     if(!exitMonth && rawStatus==='완료') exitMonth=b.sheetExitDate||'';
-    if(rawStatus.includes('진행중')) exitMonth=''; // 미확정은 퇴거월 무효
+    // 진행중·확정·완료만 퇴거월 표시. 운영중·진행예정(앱에선 운영중 취급)은 날짜 무효.
+    // (진행예정=월 미기재 규칙이라 스크립트가 이미 빈값을 주지만, 카테고리로도 이중 차단.)
+    if(!(rawStatus==='완료'||rawStatus==='확정'||rawStatus.includes('진행중'))) exitMonth='';
     return{
       ...b,
       deposit:   Number(b.deposit||0),
@@ -4842,7 +4843,7 @@ function renderBranches(){
     ?`<input type="text" class="br-cell-input" data-id="${id}" data-field="${field}" value="${(val||'').replace(/"/g,'&quot;')}" style="text-align:${align}">`
     :(val?`<span style="${simMark(id,field)}">${val}</span>`:'');
   const selCell=(id,field,val)=>_brEditMode
-    ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','확정','진행중','진행중(미정)','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
+    ?`<select class="br-cell-input" data-id="${id}" data-field="${field}" style="font-size:11px">${['','운영중','진행예정','진행중','확정','완료'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o||'─'}</option>`).join('')}</select>`
     :`<span style="${simMark(id,field)}">${statusBadge(val)}</span>`;
 
   document.getElementById('branches-content').innerHTML=`
