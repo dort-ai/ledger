@@ -3883,16 +3883,16 @@ function buildExitDelta(year){
   const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
   const exitPlan=effExitPlan();
   function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; }
-  // 현금 섹션에서 보증금 회수 항목 키 찾기 (cfMap 동적 탐색)
+  // 현금 섹션 키 찾기 (cfMap 동적 탐색)
   const cfMap=getCfMap(curCo||'');
-  let depKey=null;
+  let depKey=null;   // 보증금 회수(현금 유입)
+  let teKey=null;    // 전차보증금 '증가'(수취) — 퇴거 시 비례 감소 대상. '상환'(반환)은 건드리지 않음.
   for(const sec of cfMap){
     for(const it of sec.items){
-      if(it.keys&&(it.keys.includes('보증금반환')||it.keys.includes('계약금반환'))){
-        depKey='cf::'+it.label; break;
-      }
+      if(!it.keys) continue;
+      if(!depKey && (it.keys.includes('보증금반환')||it.keys.includes('계약금반환'))) depKey='cf::'+it.label;
+      if(!teKey && it.keys.includes('전차보증금')) teKey='cf::'+it.label; // ['전차보증금']=증가, ['전차보증금반환']=상환(제외)
     }
-    if(depKey) break;
   }
   // 퇴거 룸 비율 계산용 총 룸수 (완료 제외 = 현재 운영/퇴거예정 대상)
   const totalRooms=branches
@@ -3928,6 +3928,12 @@ function buildExitDelta(year){
         for(const ck of propCostKeys){
           const fcCost=getForecastVal(fcCid,year,'pnl',ck,m);
           if(fcCost!==0) add('pnl',ck,m,-Math.round(revPct*fcCost));
+        }
+        // 전차보증금 증가(수취): 퇴거하면 운영 지점이 줄어 신규 수취도 빠진 비율만큼 감소.
+        // (상환/반환은 보유분을 돌려주는 것이라 그대로 둠 — teKey는 '증가'만 잡음)
+        if(teKey){
+          const fcTe=getForecastVal(fcCid,year,'cash',teKey,m);
+          if(fcTe>0) add('cash',teKey,m,-Math.round(revPct*fcTe));
         }
       }
     }
