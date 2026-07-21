@@ -3882,22 +3882,17 @@ function buildExitDelta(year){
     }
     if(depKey) break;
   }
-  // 25년 실적 기준 룸당 월평균 (공과금·소모품 — 공실 무관 고정성 비용)
-  const costCats=[
-    {key:'매출원가::지점공과금', cat1:'매출원가', cat2:'지점공과금'},
-    {key:'매출원가::지점소모품', cat1:'매출원가', cat2:'지점소모품'},
-  ];
+  // 퇴거 룸 비율 계산용 총 룸수 (완료 제외 = 현재 운영/퇴거예정 대상)
   const totalRooms=branches
     .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
     .reduce((s,b)=>s+Number(b.rooms||0),0);
-  const perRoomCost={};
-  if(totalRooms>0){
-    for(const c of costCats){
-      let annualSum=0;
-      for(let m=1;m<=12;m++) annualSum+=getForecastActual('__all__',2025,c.cat1,c.cat2,m);
-      perRoomCost[c.key]=annualSum/12/totalRooms;
-    }
-  }
+  // 계정과목에서 cat2 → 'cat1::cat2' 키 조회 (cat1 하드코딩 없이 동적 매칭)
+  const _pnlItems=buildPnlItems(curCo||'__all__');
+  const pnlKeyOf=cat2=>{ const it=_pnlItems.find(x=>x.t==='i'&&x.cat2===cat2); return it?it.k:null; };
+  // 퇴거 시 '빠진 룸 비율'만큼 추정치에서 비례 차감할 변동비 (통신비는 제외 — 퇴거해도 그대로 유지)
+  const propCostKeys=['지점공과금','지점소모품','청소비'].map(pnlKeyOf).filter(Boolean);
+  const dispKey=pnlKeyOf('지점외주비'); // 권리금 없는 퇴거 → 폐기비용 계상 대상
+  const revKey='매출액::임대매출';
   exitPlan.forEach(ep=>{
     if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
     const parts=ep.exitMonth.split('-');
@@ -3908,23 +3903,25 @@ function buildExitDelta(year){
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
-    const revPct=totalRooms>0?rooms/totalRooms:0; // 임대매출 비례 비율
+    const revPct=totalRooms>0?rooms/totalRooms:0; // 빠진 룸 비율
     for(let m=em;m<=12;m++){
       if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
-      // 임대매출: 추정치 비례 차감 (여름 공실 예상 월은 추정치도 낮아 감소분도 자동으로 작아짐)
-      // 평균/비율 계산이라 소수점이 생기므로 정수(원 단위)로 반올림 처리
       if(revPct>0){
-        const fcRev=getForecastVal(curCo||'__all__',year,'pnl','매출액::임대매출',m);
-        if(fcRev>0) add('pnl','매출액::임대매출',m,-Math.round(revPct*fcRev));
-      }
-      // 공과금·소모품: 룸당 25년 평균 차감 (공실 관계없이 발생) — 정수 반올림
-      if(rooms>0) for(const c of costCats){
-        if(perRoomCost[c.key]) add('pnl',c.key,m,-Math.round(perRoomCost[c.key]*rooms));
+        // 임대매출: 비율만큼 감소 (매출은 양수 저장 → 음수 delta). 소수점은 원 단위 반올림.
+        const fcRev=getForecastVal(curCo||'__all__',year,'pnl',revKey,m);
+        if(fcRev>0) add('pnl',revKey,m,-Math.round(revPct*fcRev));
+        // 지점공과금·지점소모품·청소비: 빠진 비율만큼 추정치에서 감소.
+        // 비용은 음수 저장이라 감소는 양수 delta — 매출과 동일하게 -round(revPct*추정치)로 통일 처리됨.
+        for(const ck of propCostKeys){
+          const fcCost=getForecastVal(curCo||'__all__',year,'pnl',ck,m);
+          if(fcCost!==0) add('pnl',ck,m,-Math.round(revPct*fcCost));
+        }
       }
     }
     if(dep>0&&depKey) add('cash',depKey,em,dep);
-    if(key>0) add('pnl','매출액::기타서비스',em,key); // 권리금 → 매출액::기타서비스
+    if(key>0) add('pnl','매출액::기타서비스',em,key);   // 권리금 → 매출액::기타서비스
+    else if(dispKey) add('pnl',dispKey,em,-500000);    // 권리금 없으면 지점외주비 폐기비용 50만원(비용 발생=음수 delta)
   });
   return d;
 }
