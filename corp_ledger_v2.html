@@ -3964,11 +3964,24 @@ let _fcEditInp=null;
 let _fcItems=[];   // 현재 렌더된 items 참조
 let _fcCid='', _fcYear2='', _fcSec='';
 
-// 해당 연도·월이 이미 지난 달인지 (실적 표시 구간)
+// 해당 연도·월이 이미 지난 달인지 (달력 기준)
 function isPastFcMonth(year, month){
   const now=new Date();
   const cy=now.getFullYear(), cm=now.getMonth()+1;
   return Number(year)<cy||(Number(year)===cy&&month<cm);
+}
+
+// 해당 월에 실제 입력된(분류된) 실적 데이터가 있는지
+function hasFcActual(cid, year, month){
+  const y2=String(year).slice(-2);
+  const monthStr = month < 10 ? `${y2}년 0${month}월` : `${y2}년 ${month}월`;
+  return ST.rows.some(r=>(cid==='__all__'||r.companyId===cid) && r.month===monthStr && r.cat1);
+}
+
+// '실적'으로 표시할 월: 지난달 + 실제 분류 데이터가 입력된 경우만.
+// 지난달이라도 아직 실적을 입력하지 않았으면 예측값을 그대로 표시한다.
+function isActualFcMonth(cid, year, month){
+  return isPastFcMonth(year, month) && hasFcActual(cid, year, month);
 }
 
 // cfMap 항목의 실제 집계값 (현금흐름 탭과 동일 로직)
@@ -4011,9 +4024,9 @@ function buildCashFcItems(cid){
   return items;
 }
 
-// 손익 추정 당기순이익: 과거월=실적, 미래월=예측 계산값
+// 손익 추정 당기순이익: 실적 입력된 지난달=실적, 그 외=예측 계산값
 function getPnlForecastNet(cid, year, month){
-  if(isPastFcMonth(year, month)){
+  if(isActualFcMonth(cid, year, month)){
     // 실제 데이터에서 당기순이익 계산 (getCfItemActual pl_net 방식)
     const y2=String(year).slice(-2);
     const pad=month<10?`0${month}`:String(month);
@@ -4046,11 +4059,11 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
   const keyToItem={};
   items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
 
-  // 실적/예측 혼합 유효값: 지난달이면 실적, 아니면 예측 저장값
+  // 실적/예측 혼합 유효값: 실적 입력된 지난달이면 실적, 아니면 예측 저장값
   function effVal(k, month){
     const it=keyToItem[k];
     if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
-    if(it&&actFn&&isPastFcMonth(year,month)){
+    if(it&&actFn&&isActualFcMonth(cid,year,month)){
       const act=actFn(it,month);
       if(act!==null) return act;
     }
@@ -4059,8 +4072,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       base=ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
     else
       base=getForecastVal(cid,year,section,k,month);
-    // 퇴거계획 오버레이: 미래월에만 적용
-    if(_fcExitApplied&&!isPastFcMonth(year,month)){
+    // 퇴거계획 오버레이: 실적 미입력 월(미래·미입력 지난달)에만 적용
+    if(_fcExitApplied&&!isActualFcMonth(cid,year,month)){
       const d=_fcExitDelta[section]?.[k]?.[month];
       if(d) base+=d;
     }
@@ -4176,7 +4189,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       const v=dispVal(item,m);
       ann+=v;
       td.dataset.ri=ri; td.dataset.mi=m;
-      const isPastCell=item.t==='i'&&actFn&&isPastFcMonth(year,m)&&actFn(item,m)!==null;
+      const isPastCell=item.t==='i'&&actFn&&isActualFcMonth(cid,year,m)&&actFn(item,m)!==null;
       td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':(isPastCell||isPnlRef)?'background:#f5f5f3':''}`;
       if(isPastCell||isPnlRef){
         let actHtml='';
@@ -4572,11 +4585,11 @@ function computeCashBalanceRunning(cid, year){
   const effVal=(k,m)=>{
     const it=keyToItem[k];
     if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,m);
-    if(it&&isPastFcMonth(year,m)){ const act=getCfItemActual(cid,year,it._cfItem,m); if(act!==null) return act; }
+    if(it&&isActualFcMonth(cid,year,m)){ const act=getCfItemActual(cid,year,it._cfItem,m); if(act!==null) return act; }
     let b = cid==='__all__'
       ? ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,'cash',k,m),0)
       : getForecastVal(cid,year,'cash',k,m);
-    if(_fcExitApplied&&!isPastFcMonth(year,m)){ const d=_fcExitDelta?.['cash']?.[k]?.[m]; if(d)b+=d; }
+    if(_fcExitApplied&&!isActualFcMonth(cid,year,m)){ const d=_fcExitDelta?.['cash']?.[k]?.[m]; if(d)b+=d; }
     return b;
   };
   const running=[]; let acc=base;
@@ -4625,7 +4638,7 @@ function renderFcBalanceChart(cid, year){
     yl+=`<text x="${mL-8}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="#999">${fmtAxis(v)}</text>`; }
   if(minV<0&&maxV>0){ const yz=yFor(0); grid+=`<line x1="${mL}" y1="${yz.toFixed(1)}" x2="${W-mR}" y2="${yz.toFixed(1)}" stroke="#bbb" stroke-width="1"/>`; }
   let xl='';
-  for(let m=1;m<=12;m++){ const p=isPastFcMonth(year,m); xl+=`<text x="${xFor(m).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="10" fill="${p?'#bbb':'#3a6bcc'}">${m}월</text>`; }
+  for(let m=1;m<=12;m++){ const p=isActualFcMonth(cid,year,m); xl+=`<text x="${xFor(m).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="10" fill="${p?'#bbb':'#3a6bcc'}">${m}월</text>`; }
   let refs='';
   Object.entries(exitMonths).forEach(([m,cnt])=>{ const x=xFor(Number(m));
     refs+=`<line x1="${x.toFixed(1)}" y1="${mT}" x2="${x.toFixed(1)}" y2="${H-mB}" stroke="#f87171" stroke-dasharray="3 3" stroke-width="1"/><text x="${x.toFixed(1)}" y="${(mT-3)}" text-anchor="middle" font-size="9" fill="#ef4444">${cnt}개 철수</text>`; });
@@ -4708,7 +4721,7 @@ function renderForecast(){
         <table style="border-collapse:collapse;width:100%;min-width:1100px">
           <thead><tr style="background:#f0f0ec">
             <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:left;min-width:150px;position:sticky;left:0;top:0;z-index:4;background:#f0f0ec">항목</th>
-            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const p=isPastFcMonth(_fcYear,m);return`<th style="padding:4px 8px;font-size:11px;border:1px solid #e4e4de;text-align:center;white-space:nowrap;background:${p?'#ebebea':'#eef3fc'};color:${p?'#777':'#3a6bcc'};position:sticky;top:0;z-index:3">${m}월<div style="font-size:9px;font-weight:400">${p?'실적':'예측'}</div></th>`;}).join('')}
+            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const p=isActualFcMonth(cid,_fcYear,m);return`<th style="padding:4px 8px;font-size:11px;border:1px solid #e4e4de;text-align:center;white-space:nowrap;background:${p?'#ebebea':'#eef3fc'};color:${p?'#777':'#3a6bcc'};position:sticky;top:0;z-index:3">${m}월<div style="font-size:9px;font-weight:400">${p?'실적':'예측'}</div></th>`;}).join('')}
             <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap;position:sticky;top:0;z-index:3;background:#f0f0ec">연간전망</th>
           </tr></thead>
           <tbody id="${_fcSection}FcBody"></tbody>
