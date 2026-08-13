@@ -760,6 +760,7 @@ let selColor=COLORS[0];
 // ══════════════════════════════════════════════
 // dirtyIds: 변경된 행 ID 배열 (없으면 전체), oldMonth: 날짜 변경 시 이전 월
 function save(dirtyIds, oldMonth){
+  _fcInvalidate(); // 추정 실적 인덱스 무효화 (데이터 변경 반영)
   if(_isReadOnly()) return;
   clearTimeout(_lsTimer);
   _lsTimer=setTimeout(()=>localStorage.setItem('ledger_v6',JSON.stringify(ST)),500);
@@ -3794,13 +3795,44 @@ function setForecastCell(cid, year, section, key, month, val){
   save();
 }
 
+// ── 추정 실적 조회 인덱스 ──
+// 기존: 셀 하나당 ST.rows 전체(수만 행) 재스캔 → 표 1장에 수백만 번 연산.
+// 개선: 렌더당 1회만 전체 순회해 아래 조회표를 만들고, 각 셀은 O(1) 조회.
+// 무효화는 save()·renderForecast() 진입에서 _fcActIdx=null 로 처리(항상 최신 보장).
+let _fcActIdx=null;
+function _fcInvalidate(){ _fcActIdx=null; }
+function _fcBuildIdx(){
+  const SEP='';
+  const c1c2={}, c2m={}, c1m={}, has={};
+  const bump=(o,k,v)=>{ o[k]=(o[k]||0)+v; };
+  for(const r of ST.rows){
+    const mo=r.month; if(!mo) continue;
+    const net=num(r.income)-num(r.expense);
+    const a=r.cat1||'', b=r.cat2||'', cid=r.companyId;
+    const isBank=(a==='계좌간'||b==='계좌간');
+    // getForecastActual: cid|cat1|cat2|month (계좌간은 조회 키에 안 걸려 무해)
+    bump(c1c2, cid+SEP+a+SEP+b+SEP+mo, net);
+    bump(c1c2, '__all__'+SEP+a+SEP+b+SEP+mo, net);
+    if(!isBank){
+      // getCfItemActual(keys): cid|cat2|month
+      if(b){ bump(c2m, cid+SEP+b+SEP+mo, net); bump(c2m, '__all__'+SEP+b+SEP+mo, net); }
+      // getCfItemActual(pl_net)·getPnlForecastNet: cid|cat1|month
+      if(a){ bump(c1m, cid+SEP+a+SEP+mo, net); bump(c1m, '__all__'+SEP+a+SEP+mo, net); }
+    }
+    // hasFcActual: 해당 월에 분류(cat1)된 행 존재 여부 (원본과 동일하게 계좌간 포함)
+    if(a){ has[cid+SEP+mo]=1; has['__all__'+SEP+mo]=1; }
+  }
+  _fcActIdx={ c1c2, c2m, c1m, has, SEP };
+  return _fcActIdx;
+}
+function _fcI(){ return _fcActIdx || _fcBuildIdx(); }
+
 // 실적 집계: 해당 법인·연도·월·cat2 합산
 function getForecastActual(cid, year, cat1, cat2, month){
   const y2=String(year).slice(-2);
   const monthStr = month < 10 ? `${y2}년 0${month}월` : `${y2}년 ${month}월`;
-  return ST.rows
-    .filter(r=>(cid==='__all__'||r.companyId===cid) && r.month===monthStr && r.cat1===cat1 && r.cat2===cat2)
-    .reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+  const I=_fcI();
+  return I.c1c2[cid+I.SEP+cat1+I.SEP+cat2+I.SEP+monthStr]||0;
 }
 
 // 추정치 내 소계 계산
@@ -3975,7 +4007,8 @@ function isPastFcMonth(year, month){
 function hasFcActual(cid, year, month){
   const y2=String(year).slice(-2);
   const monthStr = month < 10 ? `${y2}년 0${month}월` : `${y2}년 ${month}월`;
-  return ST.rows.some(r=>(cid==='__all__'||r.companyId===cid) && r.month===monthStr && r.cat1);
+  const I=_fcI();
+  return !!I.has[cid+I.SEP+monthStr];
 }
 
 // '실적'으로 표시할 월: 지난달 + 실제 분류 데이터가 입력된 경우만.
@@ -3989,12 +4022,12 @@ function getCfItemActual(cid, year, cfItem, month){
   const y2=String(year).slice(-2);
   const pad=month<10?`0${month}`:String(month);
   const monthStr=`${y2}년 ${pad}월`;
-  const rows=getRows(cid).filter(r=>r.month===monthStr&&r.cat2!=='계좌간'&&r.cat1!=='계좌간');
+  const I=_fcI();
   if(cfItem.type==='pl_net'){
-    return rows.filter(r=>cfItem.cat1s.includes(r.cat1)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+    return (cfItem.cat1s||[]).reduce((s,c1)=>s+(I.c1m[cid+I.SEP+c1+I.SEP+monthStr]||0),0);
   }
   if(cfItem.keys){
-    return rows.filter(r=>cfItem.keys.includes(r.cat2)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+    return (cfItem.keys||[]).reduce((s,k)=>s+(I.c2m[cid+I.SEP+k+I.SEP+monthStr]||0),0);
   }
   return 0;
 }
@@ -4031,9 +4064,9 @@ function getPnlForecastNet(cid, year, month){
     const y2=String(year).slice(-2);
     const pad=month<10?`0${month}`:String(month);
     const monthStr=`${y2}년 ${pad}월`;
-    const rows=getRows(cid).filter(r=>r.month===monthStr&&r.cat2!=='계좌간'&&r.cat1!=='계좌간');
+    const I=_fcI();
     const plNetCat1s=['매출액','매출원가','판매비와관리비','영업외수익','영업외비용','법인세'];
-    return rows.filter(r=>plNetCat1s.includes(r.cat1)).reduce((s,r)=>s+num(r.income)-num(r.expense),0);
+    return plNetCat1s.reduce((s,c1)=>s+(I.c1m[cid+I.SEP+c1+I.SEP+monthStr]||0),0);
   }
   // 미래월: buildPnlItems의 cat1Keys를 이용해 예측값 합산
   const pnlItems=buildPnlItems(cid);
@@ -4668,6 +4701,7 @@ function renderFcBalanceChart(cid, year){
 
 function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
+  _fcInvalidate(); // 렌더 시작마다 최신 실적으로 인덱스 재빌드
   const cid=curCo; const year=_fcYear;
   ensureForecast(cid,year);
   if(_fcExitApplied) _fcExitDelta=buildExitDelta(year);
