@@ -4058,8 +4058,8 @@ function buildCashFcItems(cid){
 }
 
 // 손익 추정 당기순이익: 실적 입력된 지난달=실적, 그 외=예측 계산값
-function getPnlForecastNet(cid, year, month){
-  if(isActualFcMonth(cid, year, month)){
+function getPnlForecastNet(cid, year, month, forcePredict){
+  if(!forcePredict && isActualFcMonth(cid, year, month)){
     // 실제 데이터에서 당기순이익 계산 (getCfItemActual pl_net 방식)
     const y2=String(year).slice(-2);
     const pad=month<10?`0${month}`:String(month);
@@ -4111,6 +4111,15 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       if(d) base+=d;
     }
     return base;
+  }
+
+  // 순수 예측값: 실적을 무시하고 항상 저장된 예측치만 사용 (기말잔액 예측 비교용)
+  function fcVal(k, month){
+    const it=keyToItem[k];
+    if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month,true);
+    if(cid==='__all__')
+      return ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
+    return getForecastVal(cid,year,section,k,month);
   }
 
   // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
@@ -4173,10 +4182,12 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       lc.textContent=item.l;
       tr.appendChild(lc);
       let running=base;
+      let runningFc=base;   // 순수 예측 누적 잔액 (실적 비교용)
       let lastVal=null;
       for(let m=1;m<=12;m++){
         const net=item.ks.reduce((s,k)=>s+effVal(k,m),0);
         if(running!==null) running+=net;
+        if(runningFc!==null) runningFc+=item.ks.reduce((s,k)=>s+fcVal(k,m),0);
         const td=document.createElement('td');
         td.style.cssText=`padding:3px 8px;border:1px solid #c8d8f8;text-align:right;font-size:12px;font-weight:700;background:#eef3fc`;
         if(running===null){
@@ -4184,7 +4195,14 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
         } else {
           lastVal=running;
           const col=running>0?'#1a4fa0':running<0?'#c0392b':'#555';
-          td.innerHTML=`<span style="color:${col}">${fmt(Math.abs(running))}${running<0?' (-)':''}</span>`;
+          // 실적 비교 ON + 실적 입력된 지난달: 순수 예측 잔액과 달성률 병기
+          let cmpHtml='';
+          if(_fcCompare && runningFc!==null && isActualFcMonth(cid,year,m)){
+            const rate=runningFc!==0?Math.round(running/runningFc*100):0;
+            const rcls=rate>=100?'color:#1a7a4a':'color:#c0392b';
+            cmpHtml=`<div style="font-size:10px;color:#999;margin-top:1px;font-weight:400">예측 ${fmt(Math.abs(runningFc))}${runningFc<0?' (-)':''} <span style="${rcls}">${rate}%</span></div>`;
+          }
+          td.innerHTML=`<span style="color:${col}">${fmt(Math.abs(running))}${running<0?' (-)':''}</span>`+cmpHtml;
         }
         tr.appendChild(td);
       }
