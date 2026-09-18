@@ -3911,7 +3911,8 @@ function homesCoId(){
 
 // mode: 'plan'(기본)=아직 안 나간 확정·진행중 지점 / 'done'=이미 나간 지점(완료, 또는 퇴거월이 전월 이하인 확정·진행중 — 지점현황 자동완료와 동일 규칙)
 function buildExitDelta(year, mode='plan'){
-  const d={pnl:{},cash:{}};
+  const d={pnl:{},cash:{},_trace:[]}; // _trace: 내역 표시용 [{bid,name,sec,key,m,amt}] (pnl/cash 합산엔 미사용)
+  let _curB=null; // add() 호출 시 태깅할 현재 지점
   // 퇴거계획은 홈스인코리아 전용. 중개법인 등 다른 법인 '단독 보기'에서는 아무 반영도 하지 않음
   // (branches/exitPlan은 홈스 소유인데 예전엔 어느 법인 추정에도 보증금 현금이 잡히던 중복 오류).
   // 전체 합산(__all__)은 홈스 몫이 포함되므로 반영. 추정치도 항상 홈스 기준으로 조회.
@@ -3920,7 +3921,8 @@ function buildExitDelta(year, mode='plan'){
   const fcCid = homesId || curCo || '__all__';
   const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
   const exitPlan=effExitPlan();
-  function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; }
+  function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt;
+    if(_curB) d._trace.push({bid:_curB.id,name:_curB.name||_curB.id,sec,key,m,amt}); }
   // 현금 섹션 키 찾기 (cfMap 동적 탐색)
   const cfMap=getCfMap(curCo||'');
   let depKey=null;   // 보증금 회수(현금 유입)
@@ -3969,6 +3971,7 @@ function buildExitDelta(year, mode='plan'){
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
     const revPct=totalRooms>0?rooms/totalRooms:0; // 빠진 룸 비율
+    _curB={id:b.id,name:b.name,rooms,revPct,em,cat:info.cat};
     // 임대매출 비례감소는 퇴거월 '당월'부터 즉시 적용(양도하면 그 달 매출은 바로 빠짐).
     // 임차료·관리비·변동비(공과금 등)·전차보증금 증가 감소는 퇴거월 '다음 달'부터 — 당월 월세·비용은 그대로 나감.
     // (보증금·권리금·폐기비용은 아래에서 퇴거월 1회 반영)
@@ -4000,6 +4003,56 @@ function buildExitDelta(year, mode='plan'){
     else if(dispKey) add('pnl',dispKey,em,-500000);    // 권리금 없으면 지점외주비 폐기비용 50만원(비용 발생=음수 delta)
   });
   return d;
+}
+
+// 퇴거 반영 내역 표: 완료(항상)·계획(토글 ON) 델타를 지점별·항목별·월별로 펼침. 실적월은 델타가 안 붙으므로 제외.
+function renderFcExitBreakdown(cid, year){
+  const src=[];
+  (_fcDoneDelta._trace||[]).forEach(t=>src.push({...t,grp:'완료'}));
+  if(_fcExitApplied) (_fcExitDelta._trace||[]).forEach(t=>src.push({...t,grp:'계획'}));
+  const rows=src.filter(t=>!isActualFcMonth(cid,year,t.m));
+  if(!rows.length) return '';
+  const months=[...new Set(rows.map(t=>t.m))].sort((a,b)=>a-b);
+  const label=k=>k.replace(/^cf::/,'').replace(/^[^:]+::/,'');
+  // 그룹 → 지점 → 항목
+  const tree={};
+  rows.forEach(t=>{
+    const g=tree[t.grp]||(tree[t.grp]={}); const b=g[t.bid]||(g[t.bid]={name:t.name,items:{}});
+    const it=b.items[t.sec+'|'+t.key]||(b.items[t.sec+'|'+t.key]={sec:t.sec,key:t.key,byM:{}});
+    it.byM[t.m]=(it.byM[t.m]||0)+t.amt;
+  });
+  const td=(v,extra='')=>`<td style="padding:3px 6px;border:1px solid #ebebeb;text-align:right;font-size:11px;white-space:nowrap;${extra}${v<0?'color:#c0392b':v>0?'color:#1a7a4a':'color:#bbb'}">${v?fmt(v):'·'}</td>`;
+  const th=(t,extra='')=>`<th style="padding:4px 6px;border:1px solid #e4e4de;font-size:11px;color:#555;background:#f0f0ec;white-space:nowrap;${extra}">${t}</th>`;
+  let html='', grand=0; const grandM={};
+  for(const grp of ['완료','계획']){
+    const g=tree[grp]; if(!g) continue;
+    let gsum=0; const gM={};
+    let body='';
+    Object.values(g).forEach(b=>{
+      let bsum=0; const bM={};
+      const its=Object.values(b.items).sort((a,c)=>a.sec.localeCompare(c.sec)||a.key.localeCompare(c.key));
+      its.forEach((it,i)=>{
+        let sum=0;
+        const cells=months.map(m=>{ const v=it.byM[m]||0; sum+=v; bM[m]=(bM[m]||0)+v; return td(v); }).join('');
+        bsum+=sum;
+        body+=`<tr>${i===0?`<td rowspan="${its.length+1}" style="padding:3px 8px;border:1px solid #ebebeb;font-size:11px;font-weight:600;vertical-align:top;white-space:nowrap">${b.name}</td>`:''}<td style="padding:3px 8px;border:1px solid #ebebeb;font-size:11px;white-space:nowrap;color:${it.sec==='cash'?'#7c5cbf':'#333'}">${it.sec==='cash'?'💰 ':''}${label(it.key)}</td>${cells}${td(sum,'font-weight:600;')}</tr>`;
+      });
+      body+=`<tr style="background:#fafaf8">${''}<td style="padding:3px 8px;border:1px solid #ebebeb;font-size:11px;font-weight:600;color:#555">지점 소계</td>${months.map(m=>td(bM[m]||0,'font-weight:600;')).join('')}${td(bsum,'font-weight:700;')}</tr>`;
+      gsum+=bsum; months.forEach(m=>{ gM[m]=(gM[m]||0)+(bM[m]||0); });
+    });
+    grand+=gsum; months.forEach(m=>{ grandM[m]=(grandM[m]||0)+(gM[m]||0); });
+    html+=`<tr style="background:${grp==='완료'?'#eef3fc':'#dcfce7'}"><td colspan="${months.length+3}" style="padding:4px 8px;border:1px solid #e4e4de;font-size:11px;font-weight:700;color:#333">${grp==='완료'?'🏁 퇴거완료 지점 (항상 반영)':'🏢 퇴거계획 지점 (버튼 ON)'}</td></tr>${body}
+      <tr style="background:${grp==='완료'?'#e3eaf8':'#c9f0d6'}"><td colspan="2" style="padding:3px 8px;border:1px solid #ebebeb;font-size:11px;font-weight:700">${grp} 합계</td>${months.map(m=>td(gM[m]||0,'font-weight:700;')).join('')}${td(gsum,'font-weight:700;')}</tr>`;
+  }
+  return `<details style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:10px 16px;margin-bottom:16px">
+    <summary style="font-size:13px;font-weight:700;color:#333;cursor:pointer">🔍 퇴거 반영 내역 — 예측월 기준 현금 영향 합계 <span style="color:${grand<0?'#c0392b':'#1a7a4a'}">${grand>0?'+':''}${fmt(grand)}원</span> <span style="font-weight:400;color:#999;font-size:11px">(클릭해서 펼치기 · 매출/비용 델타는 당기순이익을 거쳐, 💰현금 항목은 직접 기말잔액에 반영)</span></summary>
+    <div style="overflow-x:auto;margin-top:10px"><table style="border-collapse:collapse;min-width:700px">
+      <thead><tr>${th('지점')}${th('항목')}${months.map(m=>th(m+'월')).join('')}${th('합계')}</tr></thead>
+      <tbody>${html}
+        <tr style="background:#f0f0ec"><td colspan="2" style="padding:4px 8px;border:1px solid #e4e4de;font-size:11px;font-weight:700">총 현금 영향</td>${months.map(m=>td(grandM[m]||0,'font-weight:700;')).join('')}${td(grand,'font-weight:700;')}</tr>
+      </tbody></table></div>
+    <div style="font-size:11px;color:#888;margin-top:8px;line-height:1.7">· 음수=현금 감소(매출 감소·비용 발생), 양수=현금 증가(비용 절감·보증금 회수·권리금). 실적이 입력된 달은 델타를 적용하지 않으므로 표에서 제외.<br>· 임대매출·공과금 등 비례 항목 = 빠진 룸 수 ÷ 전체 룸 수 × 해당 월 추정치(원본). 임차료·관리비·비례 비용은 퇴거 익월부터, 임대매출은 퇴거월부터.</div>
+  </details>`;
 }
 
 function getExitPnlDelta(month){
@@ -4759,6 +4812,7 @@ function renderForecast(){
       </div>
     </div>
     ${renderFcBalanceChart(cid,year)}
+    ${renderFcExitBreakdown(cid,year)}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
