@@ -3948,15 +3948,18 @@ function buildExitDelta(year){
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
     const revPct=totalRooms>0?rooms/totalRooms:0; // 빠진 룸 비율
-    // 월별 차감(임차료·관리비·매출/변동비 비례감소)은 퇴거월 '다음 달'부터.
-    // 퇴거월 당월은 월세를 그대로 내고 매출도 발생하므로 예측치 유지. (보증금·권리금·폐기비용은 아래에서 퇴거월 1회 반영)
-    for(let m=em+1;m<=12;m++){
-      if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
-      if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
+    // 임대매출 비례감소는 퇴거월 '당월'부터 즉시 적용(양도하면 그 달 매출은 바로 빠짐).
+    // 임차료·관리비·변동비(공과금 등)·전차보증금 증가 감소는 퇴거월 '다음 달'부터 — 당월 월세·비용은 그대로 나감.
+    // (보증금·권리금·폐기비용은 아래에서 퇴거월 1회 반영)
+    for(let m=em;m<=12;m++){
+      const afterExit=m>em; // 퇴거월 다음 달부터 true
+      if(afterExit&&rent>0) add('pnl','매출원가::지급임차료',m,+rent);
+      if(afterExit&&mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
       if(revPct>0){
-        // 임대매출: 비율만큼 감소 (매출은 양수 저장 → 음수 delta). 소수점은 원 단위 반올림.
+        // 임대매출: 비율만큼 감소 (매출은 양수 저장 → 음수 delta). 소수점은 원 단위 반올림. 퇴거월 당월부터.
         const fcRev=getForecastVal(fcCid,year,'pnl',revKey,m);
         if(fcRev>0) add('pnl',revKey,m,-Math.round(revPct*fcRev));
+        if(!afterExit) continue; // 아래 비용·전차보증금 감소는 다음 달부터
         // 지점공과금·지점소모품·청소비: 빠진 비율만큼 추정치에서 감소.
         // 비용은 음수 저장이라 감소는 양수 delta — 매출과 동일하게 -round(revPct*추정치)로 통일 처리됨.
         for(const ck of propCostKeys){
