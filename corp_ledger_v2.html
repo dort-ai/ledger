@@ -3919,9 +3919,6 @@ function buildExitDelta(year, mode='plan'){
   const homesId=homesCoId();
   if(homesId && curCo && curCo!=='__all__' && curCo!==homesId) return d;
   const fcCid = homesId || curCo || '__all__';
-  // 연도 플래그: 임대매출 추정치를 '현재 운영 지점 기준'으로 사용자가 직접 입력한 경우.
-  // → 완료 지점의 임대매출 자동 차감 생략(이중 차감 방지) + 비율 분모를 현재 운영 룸수로(연초 룸수 아님).
-  const revManual=_fcRevManual(fcCid,year);
   const branches=effBranches();   // 시뮬레이션 값 반영 (미적용 시 실데이터)
   const exitPlan=effExitPlan();
   function add(sec,key,m,amt){ if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt;
@@ -3951,10 +3948,9 @@ function buildExitDelta(year, mode='plan'){
     const done=cat==='완료'||(['확정','진행중'].includes(cat)&&!!ym&&(ym.y*100+ym.m)<=cutoffNum);
     return {cat,ym,done};
   };
-  // 퇴거 룸 비율 계산용 총 룸수. 기본=연초 운영 기준(완료라도 올해 퇴거면 포함; 예측치가 이 룸수로 작성됐다는 가정).
-  // revManual이면 현재 운영 기준(이미 나간 지점 제외).
+  // 퇴거 룸 비율 계산용 총 룸수 = 연초 운영 기준(완료라도 올해 퇴거면 포함). 예측치가 이 룸수로 작성됐다는 가정.
   const totalRooms=branches
-    .filter(b=>{ const i=exitInfo(b); return revManual ? !i.done : (i.cat!=='완료'||(i.ym&&i.ym.y===Number(year))); })
+    .filter(b=>{ const i=exitInfo(b); return i.cat!=='완료'||(i.ym&&i.ym.y===Number(year)); })
     .reduce((s,b)=>s+Number(b.rooms||0),0);
   // 계정과목에서 cat2 → 'cat1::cat2' 키 조회 (cat1 하드코딩 없이 동적 매칭)
   const _pnlItems=buildPnlItems(fcCid);
@@ -3986,7 +3982,7 @@ function buildExitDelta(year, mode='plan'){
       if(revPct>0){
         // 임대매출: 비율만큼 감소 (매출은 양수 저장 → 음수 delta). 소수점은 원 단위 반올림. 퇴거월 당월부터.
         const fcRev=getForecastVal(fcCid,year,'pnl',revKey,m);
-        if(fcRev>0&&!(revManual&&mode==='done')) add('pnl',revKey,m,-Math.round(revPct*fcRev)); // 완료분은 revManual이면 생략
+        if(fcRev>0) add('pnl',revKey,m,-Math.round(revPct*fcRev));
         if(!afterExit) continue; // 아래 비용·전차보증금 감소는 다음 달부터
         // 지점공과금·지점소모품·청소비: 빠진 비율만큼 추정치에서 감소.
         // 비용은 음수 저장이라 감소는 양수 delta — 매출과 동일하게 -round(revPct*추정치)로 통일 처리됨.
@@ -4062,15 +4058,6 @@ function renderFcExitBreakdown(cid, year){
 function getExitPnlDelta(month){
   const sum=o=>Object.values(o||{}).reduce((s,mobj)=>s+(mobj[month]||0),0);
   return sum(_fcDoneDelta.pnl)+(_fcExitApplied?sum(_fcExitDelta.pnl):0);
-}
-
-// 연도별 '임대매출 추정치 직접 입력(현재 운영 기준)' 플래그 — 홈스(퇴거계획 소유 법인) 추정 데이터에 저장
-function _fcRevManual(cid,year){
-  const c=homesCoId()||cid; return !!(ST.forecast?.[c]?.[year]?.revManual);
-}
-function toggleFcRevManual(cid,year,on){
-  const c=homesCoId()||cid; ensureForecast(c,year).revManual=!!on;
-  save(); renderForecast();
 }
 
 function toggleFcExit(){
@@ -4836,7 +4823,6 @@ function renderForecast(){
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
       <button onclick="toggleFcExit()" style="padding:5px 14px;border:1px solid ${_fcExitApplied?'#166534':'#ddd'};border-radius:20px;background:${_fcExitApplied?'#dcfce7':'#fff'};color:${_fcExitApplied?'#166534':'#666'};font-size:12px;cursor:pointer;font-weight:${_fcExitApplied?'700':'400'}">${_fcExitApplied?'✓ 퇴거계획 반영 중':'🏢 퇴거계획 반영'}</button>
       <span style="font-size:11px;color:#999">퇴거완료 지점은 항상 반영됨 · 버튼은 아직 안 나간 확정·진행중 지점만</span>
-      <label title="체크하면 완료 지점의 임대매출 자동 차감을 생략하고(이중 차감 방지), 퇴거계획 매출 감소 비율의 분모를 현재 운영 룸수로 계산합니다. 월세·관리비·공과금 절감은 그대로 반영." style="font-size:11px;color:#666;display:flex;align-items:center;gap:4px;cursor:pointer;margin:0;padding:3px 8px;border:1px solid ${_fcRevManual(cid,year)?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcRevManual(cid,year)?'#eef3fc':'#fff'}"><input type="checkbox" ${_fcRevManual(cid,year)?'checked':''} onchange="toggleFcRevManual('${cid}','${year}',this.checked)" style="margin:0">임대매출 추정치 직접 입력(현재 운영 지점 기준)</label>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
         <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
