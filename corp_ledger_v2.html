@@ -3774,7 +3774,12 @@ let _fcYear = FORECAST_YEAR_KEY();
 let _fcCompare = false;
 let _fcSection = 'pnl'; // 'pnl' | 'cash' | 'events'
 let _fcExitApplied = false;
-let _fcExitDelta = {}; // {pnl:{key:{month:amt}}, cash:{key:{month:amt}}}
+let _fcExitDelta = {}; // {pnl:{key:{month:amt}}, cash:{key:{month:amt}}} — 계획(확정·진행중, 미래) 델타. 토글 ON일 때만 적용
+let _fcDoneDelta = {}; // 같은 구조 — 퇴거완료(완료 + 퇴거월 지난 확정·진행중) 델타. 토글 무관 항상 적용
+// 두 델타 합산 조회. 토글 OFF면 완료분만.
+function fcDeltaAt(section,k,month){
+  return (_fcDoneDelta[section]?.[k]?.[month]||0)+(_fcExitApplied?(_fcExitDelta[section]?.[k]?.[month]||0):0);
+}
 
 function ensureForecast(cid, year){
   if(!ST.forecast) ST.forecast={};
@@ -3904,7 +3909,8 @@ function homesCoId(){
   return c?c.id:null;
 }
 
-function buildExitDelta(year){
+// mode: 'plan'(기본)=아직 안 나간 확정·진행중 지점 / 'done'=이미 나간 지점(완료, 또는 퇴거월이 전월 이하인 확정·진행중 — 지점현황 자동완료와 동일 규칙)
+function buildExitDelta(year, mode='plan'){
   const d={pnl:{},cash:{}};
   // 퇴거계획은 홈스인코리아 전용. 중개법인 등 다른 법인 '단독 보기'에서는 아무 반영도 하지 않음
   // (branches/exitPlan은 홈스 소유인데 예전엔 어느 법인 추정에도 보증금 현금이 잡히던 중복 오류).
@@ -3926,9 +3932,23 @@ function buildExitDelta(year){
       if(!teKey && it.keys.includes('전차보증금')) teKey='cf::'+it.label; // ['전차보증금']=증가, ['전차보증금반환']=상환(제외)
     }
   }
-  // 퇴거 룸 비율 계산용 총 룸수 (완료 제외 = 현재 운영/퇴거예정 대상)
+  // 퇴거월 파싱: 'YYYY-MM' / 'YY-MM' / '25.06' 등 → {y,m} (없으면 null)
+  const parseYM=s=>{ s=String(s||'').trim(); const mm=s.match(/(\d{2,4})\D+(\d{1,2})/); if(!mm) return null;
+    let y=parseInt(mm[1],10); if(y<100) y+=2000; const m=parseInt(mm[2],10); if(m<1||m>12) return null; return {y,m}; };
+  // 통장정리 기준 전월(YYYYMM). 이 값 이하의 퇴거월은 '이미 나간' 것으로 취급.
+  const cutoffNum=(()=>{ const dt=new Date(); let y=dt.getFullYear(), pm=dt.getMonth(); if(pm===0){y-=1;pm=12;} return y*100+pm; })();
+  // 지점별 퇴거 판정: {cat, ym, done}
+  const epOf={}; exitPlan.forEach(ep=>{ epOf[String(ep.id||'').trim()]=ep; });
+  const exitInfo=b=>{
+    const ep=epOf[String(b.id||'').trim()];
+    const cat=statusCatGlobal(ep?ep.status:(b.rawStatus||b.status||''));
+    const ym=parseYM(ep&&ep.exitMonth?ep.exitMonth:(cat==='완료'?b.sheetExitDate:''));
+    const done=cat==='완료'||(['확정','진행중'].includes(cat)&&!!ym&&(ym.y*100+ym.m)<=cutoffNum);
+    return {cat,ym,done};
+  };
+  // 퇴거 룸 비율 계산용 총 룸수 = 연초 운영 기준(완료라도 올해 퇴거면 포함). 예측치가 이 룸수로 작성됐다는 가정.
   const totalRooms=branches
-    .filter(b=>statusCatGlobal(b.rawStatus||b.status||'')!=='완료')
+    .filter(b=>{ const i=exitInfo(b); return i.cat!=='완료'||(i.ym&&i.ym.y===Number(year)); })
     .reduce((s,b)=>s+Number(b.rooms||0),0);
   // 계정과목에서 cat2 → 'cat1::cat2' 키 조회 (cat1 하드코딩 없이 동적 매칭)
   const _pnlItems=buildPnlItems(fcCid);
@@ -3938,12 +3958,13 @@ function buildExitDelta(year){
   const dispKey=pnlKeyOf('지점외주비'); // 권리금 없는 퇴거 → 폐기비용 계상 대상
   const revKey='매출액::임대매출';
   exitPlan.forEach(ep=>{
-    if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
-    const parts=ep.exitMonth.split('-');
-    const ey=Number(parts[0]), em=Number(parts[1]);
-    if(ey!==Number(year)) return;
-    const b=branches.find(x=>x.id===ep.id);
+    const b=branches.find(x=>String(x.id||'').trim()===String(ep.id||'').trim());
     if(!b) return;
+    const info=exitInfo(b);
+    if(!['확정','진행중','완료'].includes(info.cat)||!info.ym) return;
+    if(mode==='done'?!info.done:info.done) return; // 모드별 대상만 (완료는 항상 done이라 plan에서 자동 제외)
+    const ey=info.ym.y, em=info.ym.m;
+    if(ey!==Number(year)) return;
     const rent=Number(b.rent||0), mgmt=Number(b.mgmtFee||0);
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
@@ -3982,8 +4003,8 @@ function buildExitDelta(year){
 }
 
 function getExitPnlDelta(month){
-  if(!_fcExitApplied||!_fcExitDelta.pnl) return 0;
-  return Object.values(_fcExitDelta.pnl).reduce((s,mobj)=>s+(mobj[month]||0),0);
+  const sum=o=>Object.values(o||{}).reduce((s,mobj)=>s+(mobj[month]||0),0);
+  return sum(_fcDoneDelta.pnl)+(_fcExitApplied?sum(_fcExitDelta.pnl):0);
 }
 
 function toggleFcExit(){
@@ -4083,7 +4104,7 @@ function getPnlForecastNet(cid, year, month){
     return s+getForecastVal(cid,year,'pnl',k,month);
   },0);
   const net=sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
-  return _fcExitApplied ? net+getExitPnlDelta(month) : net;
+  return net+getExitPnlDelta(month);
 }
 
 // actFn(item, month) → number(실적값) | null(실적 없는 행)
@@ -4110,11 +4131,8 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
       base=ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
     else
       base=getForecastVal(cid,year,section,k,month);
-    // 퇴거계획 오버레이: 실적 미입력 월(미래·미입력 지난달)에만 적용
-    if(_fcExitApplied&&!isActualFcMonth(cid,year,month)){
-      const d=_fcExitDelta[section]?.[k]?.[month];
-      if(d) base+=d;
-    }
+    // 퇴거 오버레이(완료분 항상 + 계획분 토글 ON): 실적 미입력 월(미래·미입력 지난달)에만 적용
+    if(!isActualFcMonth(cid,year,month)) base+=fcDeltaAt(section,k,month);
     return base;
   }
 
@@ -4627,7 +4645,7 @@ function computeCashBalanceRunning(cid, year){
     let b = cid==='__all__'
       ? ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,'cash',k,m),0)
       : getForecastVal(cid,year,'cash',k,m);
-    if(_fcExitApplied&&!isActualFcMonth(cid,year,m)){ const d=_fcExitDelta?.['cash']?.[k]?.[m]; if(d)b+=d; }
+    if(!isActualFcMonth(cid,year,m)) b+=fcDeltaAt('cash',k,m);
     return b;
   };
   const running=[]; let acc=base;
@@ -4709,6 +4727,7 @@ function renderForecast(){
   _fcInvalidate(); // 렌더 시작마다 최신 실적으로 인덱스 재빌드
   const cid=curCo; const year=_fcYear;
   ensureForecast(cid,year);
+  _fcDoneDelta=buildExitDelta(year,'done'); // 퇴거완료분은 항상 반영
   if(_fcExitApplied) _fcExitDelta=buildExitDelta(year);
 
   // 연간 요약 계산
@@ -4749,6 +4768,7 @@ function renderForecast(){
       <button onclick="_fcSection='pnl';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='pnl'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='pnl'?'#3a6bcc':'#fff'};color:${_fcSection==='pnl'?'#fff':'#666'};font-size:12px;cursor:pointer">손익 추정</button>
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
       <button onclick="toggleFcExit()" style="padding:5px 14px;border:1px solid ${_fcExitApplied?'#166534':'#ddd'};border-radius:20px;background:${_fcExitApplied?'#dcfce7':'#fff'};color:${_fcExitApplied?'#166534':'#666'};font-size:12px;cursor:pointer;font-weight:${_fcExitApplied?'700':'400'}">${_fcExitApplied?'✓ 퇴거계획 반영 중':'🏢 퇴거계획 반영'}</button>
+      <span style="font-size:11px;color:#999">퇴거완료 지점은 항상 반영됨 · 버튼은 아직 안 나간 확정·진행중 지점만</span>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
         <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
@@ -5105,14 +5125,14 @@ function applyBranchSim(){
   Object.keys(_brSim).forEach(id=>{ if(!Object.keys(_brSim[id]).length) delete _brSim[id]; });
   _brSimMode=Object.keys(_brSim).length>0;
   _brEditMode=false;
-  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);  // 추정 탭 연동 갱신
+  _fcDoneDelta=buildExitDelta(_fcYear,'done'); if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);  // 추정 탭 연동 갱신
   renderBranches();
 }
 
 // 시뮬 초기화 — 실제값으로 복귀
 function clearBranchSim(){
   _brSim={}; _brSimMode=false; _brEditMode=false;
-  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
+  _fcDoneDelta=buildExitDelta(_fcYear,'done'); if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
   renderBranches();
 }
 
