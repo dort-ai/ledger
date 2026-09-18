@@ -3948,7 +3948,9 @@ function buildExitDelta(year){
     const dep=Number(b.deposit||0), key=Number(ep.keyMoney||0);
     const rooms=Number(b.rooms||0);
     const revPct=totalRooms>0?rooms/totalRooms:0; // 빠진 룸 비율
-    for(let m=em;m<=12;m++){
+    // 월별 차감(임차료·관리비·매출/변동비 비례감소)은 퇴거월 '다음 달'부터.
+    // 퇴거월 당월은 월세를 그대로 내고 매출도 발생하므로 예측치 유지. (보증금·권리금·폐기비용은 아래에서 퇴거월 1회 반영)
+    for(let m=em+1;m<=12;m++){
       if(rent>0) add('pnl','매출원가::지급임차료',m,+rent);
       if(mgmt>0) add('pnl','매출원가::건물관리비',m,+mgmt);
       if(revPct>0){
