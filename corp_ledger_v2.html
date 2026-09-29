@@ -4107,6 +4107,27 @@ function getPnlForecastNet(cid, year, month){
   return net+getExitPnlDelta(month);
 }
 
+// 실적/예측 혼합 유효값: 실적 입력된 지난달이면 실적, 아니면 예측 저장값 (표·요약카드 공용)
+function fcEffVal(cid, year, section, it, k, month, actFn){
+  if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
+  if(it&&actFn&&isActualFcMonth(cid,year,month)){
+    const act=actFn(it,month);
+    if(act!==null) return act;
+  }
+  let base;
+  if(cid==='__all__')
+    base=ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
+  else
+    base=getForecastVal(cid,year,section,k,month);
+  // 퇴거 오버레이(완료분 항상 + 계획분 토글 ON): 실적 미입력 월(미래·미입력 지난달)에만 적용
+  if(!isActualFcMonth(cid,year,month)) base+=fcDeltaAt(section,k,month);
+  return base;
+}
+const fcPnlActFn=(cid,year)=>(item,month)=>{
+  if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(cid,year,item.cat1,item.cat2,month);
+  return null;
+};
+
 // actFn(item, month) → number(실적값) | null(실적 없는 행)
 function renderForecastTable(cid, year, items, section, tbodyId, actFn){
   _fcItems=items; _fcCid=cid; _fcYear2=year; _fcSec=section;
@@ -4118,23 +4139,7 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
   const keyToItem={};
   items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
 
-  // 실적/예측 혼합 유효값: 실적 입력된 지난달이면 실적, 아니면 예측 저장값
-  function effVal(k, month){
-    const it=keyToItem[k];
-    if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
-    if(it&&actFn&&isActualFcMonth(cid,year,month)){
-      const act=actFn(it,month);
-      if(act!==null) return act;
-    }
-    let base;
-    if(cid==='__all__')
-      base=ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,section,k,month),0);
-    else
-      base=getForecastVal(cid,year,section,k,month);
-    // 퇴거 오버레이(완료분 항상 + 계획분 토글 ON): 실적 미입력 월(미래·미입력 지난달)에만 적용
-    if(!isActualFcMonth(cid,year,month)) base+=fcDeltaAt(section,k,month);
-    return base;
-  }
+  const effVal=(k, month)=>fcEffVal(cid,year,section,keyToItem[k],k,month,actFn);
 
   // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
   function dispVal(item, month){
@@ -4730,16 +4735,10 @@ function renderForecast(){
   _fcDoneDelta=buildExitDelta(year,'done'); // 퇴거완료분은 항상 반영
   if(_fcExitApplied) _fcExitDelta=buildExitDelta(year);
 
-  // 연간 요약 계산
-  const annMat=(items,section)=>{
-    const totals={};
-    items.filter(i=>i.t==='i').forEach(i=>{for(let m=1;m<=12;m++) totals[i.k]=(totals[i.k]||0)+getForecastVal(cid,year,section,i.k,m);});
-    return totals;
-  };
+  // 연간 요약 계산 — 표의 '연간전망'과 동일하게 실적월=실적, 나머지=예측+퇴거 반영
   const pnlItems=buildPnlItems(cid);
-  const pt=annMat(pnlItems,'pnl');
-  // 요약카드: cat1::cat2 키 기준으로 매출액/순이익 계산
-  const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=getForecastVal(cid,year,'pnl',i.k,m);return s;},0);
+  const pnlActFn=fcPnlActFn(cid,year);
+  const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=fcEffVal(cid,year,'pnl',i,i.k,m,pnlActFn);return s;},0);
   const totalRev=sumCat1Annual('매출액');
   const netProfit=sumCat1Annual('매출액')+sumCat1Annual('매출원가')+sumCat1Annual('판매비와관리비')+sumCat1Annual('영업외수익')+sumCat1Annual('영업외비용')+sumCat1Annual('법인세');
 
@@ -4789,11 +4788,7 @@ function renderForecast(){
     </div>
   `;
   if(_fcSection==='pnl'){
-    const actFn=(item,month)=>{
-      if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(cid,year,item.cat1,item.cat2,month);
-      return null;
-    };
-    renderForecastTable(cid,year,buildPnlItems(cid),'pnl','pnlFcBody',actFn);
+    renderForecastTable(cid,year,pnlItems,'pnl','pnlFcBody',pnlActFn);
   } else if(_fcSection==='cash'){
     const actFn=(item,month)=>{
       if(item._cfItem) return getCfItemActual(cid,year,item._cfItem,month);
