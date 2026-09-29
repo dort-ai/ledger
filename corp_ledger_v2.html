@@ -808,7 +808,7 @@ async function saveToFirestore(){
       months:      mergedMonths,
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
     };
-    // deposits·branches·exitPlan은 구글시트 앱스크립트가 소스 → 앱은 쓰지 않음 (덮어쓰기 충돌 방지).
+    // deposits·branches·exitPlan·rentKpi는 구글시트 앱스크립트가 소스 → 앱은 쓰지 않음 (덮어쓰기 충돌 방지).
     // (exitPlan 편집 모달 openBranchEdit는 dead code라 앱이 실제로 안 씀. 되쓰면 시트의 상태·퇴거월 변경이 stale 값에 막힘.)
     try{
       await db.doc(`users/${uid}`).update(metaData);
@@ -966,6 +966,7 @@ async function loadFromFirestore(){
     ST.deposits        =m.deposits        ||[];
     ST.branches        =m.branches        ||[];
     ST.exitPlan        =m.exitPlan        ||[];
+    ST.rentKpi         =m.rentKpi         ||null; // 월세내역 구글시트 앱스크립트가 소스(앱은 읽기만)
     ST._metaMonths =(m.months     ||[]).sort();
 
     // 가장 최근 월 로드 — 최대 3개월 병렬 조회 후 가장 최근 데이터 사용
@@ -1101,6 +1102,7 @@ function startRealtimeSheetSync(){
     if(JSON.stringify(m.deposits||[])!==JSON.stringify(ST.deposits||[])){ ST.deposits=m.deposits||[]; changed=true; }
     if(JSON.stringify(m.branches||[])!==JSON.stringify(ST.branches||[])){ ST.branches=m.branches||[]; changed=true; }
     if(JSON.stringify(m.exitPlan||[])!==JSON.stringify(ST.exitPlan||[])){ ST.exitPlan=m.exitPlan||[]; changed=true; }
+    if(JSON.stringify(m.rentKpi||null)!==JSON.stringify(ST.rentKpi||null)){ ST.rentKpi=m.rentKpi||null; changed=true; }
     if(!changed) return;
     if(curTab==='deposits')renderDeposits();
     else if(curTab==='branches')renderBranches();
@@ -4727,6 +4729,28 @@ function renderFcBalanceChart(cid, year){
     </svg>${legend}</div>`;
 }
 
+// 거래액 카드 — 월세내역 구글시트 대시보드 값(ST.rentKpi, 앱스크립트 동기화). 홈스인코리아(또는 전체) 전용.
+// 거래액은 가계부 실적이 입력된 달(isActualFcMonth)까지만 누적 → 손익과 같은 기간. 미정산 선수금은 시트 최신값.
+function renderRentKpiCard(cid, year){
+  const rk=ST.rentKpi;
+  const homesId=homesCoId();
+  if(!rk||!rk.months) return '';
+  if(homesId&&cid!==homesId&&cid!=='__all__') return '';
+  const box=inner=>`<div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">거래액 <span style="color:#bbb">(월세내역 시트)</span></div>${inner}</div>`;
+  const unsettled=rk.unsettled!=null
+    ?`<div style="font-size:11px;color:#666;margin-top:6px">미정산 선수금 <b>${fmtB(Number(rk.unsettled)||0)}</b>${rk.unsettledCount?` · ${rk.unsettledCount}건`:''}${rk.syncedAt?` <span style="color:#aaa">(${String(rk.syncedAt).slice(5,10).replace('-','/')} 시트 기준)</span>`:''}</div>`:'';
+  if(Number(rk.year)!==Number(year)) return box(`<div style="font-size:14px;color:#aaa">-</div>${unsettled}`);
+  const inc=[]; let sum=0, d=0, c=0, p=0;
+  for(let m=1;m<=12;m++){
+    if(!isActualFcMonth(cid,year,m)) continue;
+    const v=rk.months[m]||rk.months[String(m)]; if(!v) continue;
+    inc.push(m); sum+=Number(v.gmv)||0; d+=Number(v.direct)||0; c+=Number(v.consign)||0; p+=Number(v.platform)||0;
+  }
+  if(!inc.length) return box(`<div style="font-size:14px;color:#aaa">가계부 실적 입력 전</div>${unsettled}`);
+  const range=inc.length===inc[inc.length-1]-inc[0]+1?`${inc[0]}~${inc[inc.length-1]}월`:`${inc.join('·')}월`;
+  return box(`<div style="font-size:18px;font-weight:700;color:#7a4a1a" title="직영 ${fmt(d)} · 위탁 ${fmt(c)} · 플랫폼 ${fmt(p)}">${fmtB(sum)} <span style="font-size:11px;font-weight:400;color:#888">${range} 누적</span></div>${unsettled}`);
+}
+
 function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
   _fcInvalidate(); // 렌더 시작마다 최신 실적으로 인덱스 재빌드
@@ -4741,6 +4765,8 @@ function renderForecast(){
   const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=fcEffVal(cid,year,'pnl',i,i.k,m,pnlActFn);return s;},0);
   const totalRev=sumCat1Annual('매출액');
   const netProfit=sumCat1Annual('매출액')+sumCat1Annual('매출원가')+sumCat1Annual('판매비와관리비')+sumCat1Annual('영업외수익')+sumCat1Annual('영업외비용')+sumCat1Annual('법인세');
+
+  const rentCard=renderRentKpiCard(cid,year);
 
   document.getElementById('forecast-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
@@ -4758,7 +4784,8 @@ function renderForecast(){
       </div>
     </div>
     ${renderFcBalanceChart(cid,year)}
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(${rentCard?4:3},1fr);gap:10px;margin-bottom:16px">
+      ${rentCard}
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">실적 비교</div><div style="font-size:14px;font-weight:600;color:${_fcCompare?'#3a6bcc':'#aaa'}">${_fcCompare?'ON — 비교 중':'OFF'}</div></div>
