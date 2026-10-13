@@ -1329,7 +1329,10 @@ function renderLedger(){
 // 본문(요약·배지·행)만 갱신 — 헤더(검색 입력창)를 재생성하지 않아 한글 조합/포커스가 유지됨
 function renderLedgerBody(){
   const isAll=curCo==='__all__';
+  const _view=_ledgerViewAnchor(); // 다시 그리기 전 선택 행·화면 기준 행(id) 기억
   _rows=getFiltered();
+  // 선택을 같은 행(id)으로 옮김 — 번호만 유지하면 다른 행이 선택된 상태가 됨
+  if(_view.selId){const ni=_rows.findIndex(r=>r.id===_view.selId);if(ni>=0&&ni!==selAnchor.r){selAnchor={r:ni,c:selAnchor.c};selFocus={...selAnchor};}}
 
   const totI=_rows.reduce((s,r)=>s+num(r.income),0);
   const totE=_rows.reduce((s,r)=>s+num(r.expense),0);
@@ -1346,8 +1349,9 @@ function renderLedgerBody(){
     else{btnU.style.display='none';}
   }
 
-  // 바디
-  _renderLimit=200;
+  // 바디 — 기준 행·선택 행이 200행 밖이면 거기까지 그려야 스크롤로 되돌아갈 수 있음
+  const _need=Math.max(_view.viewId?_rows.findIndex(r=>r.id===_view.viewId):-1,_view.selId?_rows.findIndex(r=>r.id===_view.selId):-1);
+  _renderLimit=Math.min(_rows.length,Math.max(200,_need+50));
   const frag=document.createDocumentFragment();
   if(!_rows.length){
     const tr=document.createElement('tr');
@@ -1412,6 +1416,54 @@ function renderLedgerBody(){
   // anchor가 범위 밖이면 리셋
   if(selAnchor.r>=_rows.length) selAnchor=selFocus={r:0,c:0};
   updateHL();
+  _restoreLedgerView(_view);
+  _rearmAfterRender();
+}
+
+// ── 다시 그리기 전후 위치 유지 ──
+// 선택·편집은 행 번호(인덱스)로 관리되는데, 필터·정렬·저장 후 다시 그리면 같은 번호가 다른 행을 가리킴
+// (→ Ctrl+Enter 분할이 엉뚱한 행에 적용, 필터 해제 시 보던 행을 잃음). 행 id로 기억했다가 되돌림.
+function _ledgerViewAnchor(){
+  const res={selId:_rows[selAnchor.r]?.id||null,viewId:null,off:0,isSel:false,n:_rows.length};
+  const sc=document.getElementById('tbl-scroll'),tb=document.getElementById('t-body');
+  if(!sc||!tb||!tb.rows.length)return res;
+  const sr=sc.getBoundingClientRect();
+  if(!sr.height)return res; // 숨겨진 탭
+  const top=sr.top+(document.getElementById('t-head')?.getBoundingClientRect().height||0);
+  const vis=tr=>{const b=tr.getBoundingClientRect();return b.bottom>top&&b.top<sr.bottom;};
+  // 기준 행: 화면에 보이는 선택 행, 없으면 화면 맨 위에 보이는 행
+  let tr=tb.rows[selAnchor.r];
+  if(tr&&tr.dataset.id&&vis(tr))res.isSel=true;
+  else{tr=null;for(const x of tb.rows){if(x.dataset.id&&x.getBoundingClientRect().bottom>top){tr=x;break;}}}
+  if(tr){res.viewId=tr.dataset.id;res.off=tr.getBoundingClientRect().top-sr.top;}
+  return res;
+}
+let _lastViewSig='';
+function _restoreLedgerView(v){
+  // 필터를 새로 걸어 목록이 줄었는데 기준이 '맨 위 행'이면 결과를 처음부터 보여줌 (화면에 보이던 선택 행은 그대로 유지)
+  const sig=JSON.stringify([curCo,periodYear,periodMonth,filters,sortKey,sortAsc]);
+  const narrowed=sig!==_lastViewSig&&_rows.length<v.n; _lastViewSig=sig;
+  if(narrowed&&!v.isSel){const sc=document.getElementById('tbl-scroll');if(sc)sc.scrollTop=0;return;}
+  if(!v.viewId)return;
+  const ni=_rows.findIndex(r=>r.id===v.viewId);if(ni<0)return;
+  const sc=document.getElementById('tbl-scroll'),tr=document.getElementById('t-body')?.rows[ni];
+  if(!sc||!tr)return;
+  sc.scrollTop+=tr.getBoundingClientRect().top-sc.getBoundingClientRect().top-v.off; // 같은 화면 위치에 오도록
+}
+// 다시 그리면 한글 입력용 무장 input이 사라져 첫 타자가 씹힘 → 그리기 후 선택 셀 재무장
+// (호출부가 선택을 바꾸는 경우를 위해 다음 틱에, 검색창 등 다른 입력 중이거나 모달이 열려 있으면 건드리지 않음)
+function _rearmAfterRender(){
+  setTimeout(()=>{
+    if(curTab!=='ledger'||editActive||editArmed||!_rows.length)return;
+    if(document.querySelector('.overlay.show')||document.getElementById('_frPreviewOverlay'))return;
+    const ae=document.activeElement;
+    if(ae&&ae!==document.body&&ae.id!=='tbl-scroll'&&!(ae.tagName==='BUTTON'&&ae.closest('#t-body')))return;
+    const td=getTd(selAnchor.r,selAnchor.c),sc=document.getElementById('tbl-scroll');
+    if(!td||!sc)return;
+    const b=td.getBoundingClientRect(),s=sc.getBoundingClientRect();
+    if(b.bottom<s.top||b.top>s.bottom)return; // 화면 밖 셀을 무장하면 그쪽으로 스크롤이 튐
+    armCellIfIdle();
+  },0);
 }
 
 function _renderMoreRow(){
