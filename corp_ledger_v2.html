@@ -3940,11 +3940,51 @@ let _fcYear = FORECAST_YEAR_KEY();
 let _fcCompare = false;
 let _fcSection = 'pnl'; // 'pnl' | 'cash' | 'events'
 let _fcExitApplied = false;
-let _fcExitDelta = {}; // {pnl:{key:{month:amt}}, cash:{key:{month:amt}}} — 계획(확정·진행중, 미래) 델타. 토글 ON일 때만 적용
-let _fcDoneDelta = {}; // 같은 구조 — 퇴거완료(완료 + 퇴거월 지난 확정·진행중) 델타. 토글 무관 항상 적용
+// 퇴거 델타 — 연도별 {done, plan}. 각각 {pnl:{key:{month:amt}}, cash:{...}}
+//  done=퇴거완료(완료 + 퇴거월 지난 확정·진행중): 토글 무관 항상 적용 / plan=아직 안 나간 확정·진행중: 토글 ON일 때만
+// renderForecast가 조회 기간의 연도마다 빌드. 비우면 다음 렌더에서 다시 빌드.
+let _fcDeltas = {};
+function fcBuildDeltas(years){
+  _fcDeltas={};
+  years.forEach(y=>{ _fcDeltas[Number(y)]={done:buildExitDelta(y,'done'),plan:buildExitDelta(y)}; });
+}
 // 두 델타 합산 조회. 토글 OFF면 완료분만.
-function fcDeltaAt(section,k,month){
-  return (_fcDoneDelta[section]?.[k]?.[month]||0)+(_fcExitApplied?(_fcExitDelta[section]?.[k]?.[month]||0):0);
+function fcDeltaAt(section,k,month,year=_fcYear){
+  const d=_fcDeltas[Number(year)]; if(!d) return 0;
+  return (d.done[section]?.[k]?.[month]||0)+(_fcExitApplied?(d.plan[section]?.[k]?.[month]||0):0);
+}
+
+// ── 조회 기간 (연도를 넘어 이어보기) ──
+// 기본은 _fcYear 1~12월. _fcFrom/_fcTo({y,m})를 지정하면 예: 26.01~27.03처럼 한 표에 이어 붙임.
+// 각 칸은 자기 연도의 추정치·실적·퇴거 델타를 그대로 사용 (저장 구조 ST.forecast[cid][year]는 그대로).
+const FC_MAX_COLS=24;
+let _fcFrom=null, _fcTo=null;
+try{ const s=JSON.parse(localStorage.getItem('fc_period')||'null'); if(s&&s.from&&s.to){_fcFrom=s.from;_fcTo=s.to;_fcYear=String(s.from.y);} }catch(e){}
+function fcCols(){
+  const y=Number(_fcYear);
+  const f=_fcFrom||{y,m:1}, t=_fcTo||{y,m:12};
+  const cols=[]; let cy=f.y, cm=f.m;
+  while(cy*100+cm<=t.y*100+t.m && cols.length<FC_MAX_COLS){ cols.push({y:cy,m:cm}); if(++cm>12){cm=1;cy++;} }
+  return cols.length?cols:[{y,m:1}];
+}
+function setFcPeriod(from,to){
+  if(from.y*100+from.m>to.y*100+to.m){ const t=from; from=to; to=t; }
+  // 최대 24개월
+  const span=(to.y-from.y)*12+(to.m-from.m)+1;
+  if(span>FC_MAX_COLS){ const e=from.y*12+from.m-1+FC_MAX_COLS-1; to={y:Math.floor(e/12),m:e%12+1}; }
+  _fcFrom=from; _fcTo=to; _fcYear=String(from.y);
+  try{ localStorage.setItem('fc_period',JSON.stringify({from,to})); }catch(e){}
+  _fcAnchor={ri:-1,mi:-1};
+  renderForecast();
+}
+function fcPeriodChange(){
+  const p=id=>{ const [y,m]=document.getElementById(id).value.split('-').map(Number); return {y,m}; };
+  setFcPeriod(p('fcFrom'),p('fcTo'));
+}
+function fcPreset(kind){
+  const cy=new Date().getFullYear();
+  if(kind==='year') setFcPeriod({y:cy,m:1},{y:cy,m:12});
+  else if(kind==='next') setFcPeriod({y:cy,m:1},{y:cy+1,m:3});
 }
 
 function ensureForecast(cid, year){
@@ -4168,14 +4208,14 @@ function buildExitDelta(year, mode='plan'){
   return d;
 }
 
-function getExitPnlDelta(month){
+function getExitPnlDelta(month,year=_fcYear){
+  const d=_fcDeltas[Number(year)]; if(!d) return 0;
   const sum=o=>Object.values(o||{}).reduce((s,mobj)=>s+(mobj[month]||0),0);
-  return sum(_fcDoneDelta.pnl)+(_fcExitApplied?sum(_fcExitDelta.pnl):0);
+  return sum(d.done.pnl)+(_fcExitApplied?sum(d.plan.pnl):0);
 }
 
 function toggleFcExit(){
   _fcExitApplied=!_fcExitApplied;
-  if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
   renderForecast();
 }
 
@@ -4186,7 +4226,8 @@ let _fcEditActive=false;
 let _fcEditTd=null;
 let _fcEditInp=null;
 let _fcItems=[];   // 현재 렌더된 items 참조
-let _fcCid='', _fcYear2='', _fcSec='';
+let _fcCid='', _fcSec='';
+let _fcColsCur=[]; // 현재 렌더된 열 [{y,m}] — _fcAnchor.mi·td.dataset.mi는 이 배열의 인덱스
 
 // 해당 연도·월이 이미 지난 달인지 (달력 기준)
 function isPastFcMonth(year, month){
@@ -4270,14 +4311,14 @@ function getPnlForecastNet(cid, year, month){
     return s+getForecastVal(cid,year,'pnl',k,month);
   },0);
   const net=sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비')+sumC1('영업외수익')+sumC1('영업외비용')+sumC1('법인세');
-  return net+getExitPnlDelta(month);
+  return net+getExitPnlDelta(month,year);
 }
 
 // 실적/예측 혼합 유효값: 실적 입력된 지난달이면 실적, 아니면 예측 저장값 (표·요약카드 공용)
 function fcEffVal(cid, year, section, it, k, month, actFn){
   if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
   if(it&&actFn&&isActualFcMonth(cid,year,month)){
-    const act=actFn(it,month);
+    const act=actFn(it,month,year);
     if(act!==null) return act;
   }
   let base;
@@ -4286,39 +4327,78 @@ function fcEffVal(cid, year, section, it, k, month, actFn){
   else
     base=getForecastVal(cid,year,section,k,month);
   // 퇴거 오버레이(완료분 항상 + 계획분 토글 ON): 실적 미입력 월(미래·미입력 지난달)에만 적용
-  if(!isActualFcMonth(cid,year,month)) base+=fcDeltaAt(section,k,month);
+  if(!isActualFcMonth(cid,year,month)) base+=fcDeltaAt(section,k,month,year);
   return base;
 }
-const fcPnlActFn=(cid,year)=>(item,month)=>{
+// actFn(item, month, year) → number(실적값) | null(실적 없는 행)
+const fcPnlActFn=(cid)=>(item,month,year)=>{
   if(item.t==='i'&&item.cat1&&item.cat2) return getForecastActual(cid,year,item.cat1,item.cat2,month);
   return null;
 };
+const fcCashActFn=(cid)=>(item,month,year)=>item._cfItem?getCfItemActual(cid,year,item._cfItem,month):null;
 
-// actFn(item, month) → number(실적값) | null(실적 없는 행)
-function renderForecastTable(cid, year, items, section, tbodyId, actFn){
-  _fcItems=items; _fcCid=cid; _fcYear2=year; _fcSec=section;
+// ── 기간 기말잔액 ──
+// 연도 기초잔액: 현금흐름 탭 입력값 우선, 없으면 전년도 12월 예상 기말잔액에서 이어짐(최대 2년 거슬러).
+function fcBaseOf(cid,y){
+  if(cid==='__all__'){
+    const a=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[y]);
+    return a.some(b=>b!=null)?a.reduce((s,b)=>s+(b??0),0):null;
+  }
+  return ST.cfBaseBalance?.[cid]?.[y]??null;
+}
+// 월별 현금 순증감 (표의 '현금의 순증감'과 동일: 실적월=실적, 그 외=예측+퇴거 델타)
+function fcCashNetFn(cid){
+  const items=buildCashFcItems(cid), bal=items.find(it=>it.t==='bal_end'), k2i={};
+  items.forEach(it=>{ if(it.k) k2i[it.k]=it; });
+  const actFn=fcCashActFn(cid);
+  return (y,m)=>bal?bal.ks.reduce((s,k)=>s+fcEffVal(cid,y,'cash',k2i[k],k,m,actFn),0):0;
+}
+function fcYearStartBal(cid,y,net,depth=2){
+  const b=fcBaseOf(cid,y); if(b!=null) return b;
+  if(depth<=0) return null;
+  const pb=fcYearStartBal(cid,y-1,net,depth-1); if(pb==null) return null;
+  let acc=pb; for(let m=1;m<=12;m++) acc+=net(y-1,m);
+  return acc;
+}
+// cols([{y,m}])별 기말잔액 배열 (기초잔액 없으면 null 배열). 표·그래프 공용.
+function fcBalanceCols(cid,cols){
+  const net=fcCashNetFn(cid);
+  let acc=fcYearStartBal(cid,cols[0].y,net);
+  if(acc==null) return cols.map(()=>null);
+  for(let m=1;m<cols[0].m;m++) acc+=net(cols[0].y,m); // 기간 시작 전 달들
+  return cols.map((c,i)=>{
+    if(i>0&&c.m===1){ const e=fcBaseOf(cid,c.y); if(e!=null) acc=e; } // 새 연도 기초잔액을 입력해 뒀으면 그 값 사용
+    acc+=net(c.y,c.m);
+    return acc;
+  });
+}
+
+// cols=[{y,m}] 조회 기간 열. actFn(item, month, year) → number(실적값) | null(실적 없는 행)
+function renderForecastTable(cid, cols, items, section, tbodyId, actFn){
+  _fcItems=items; _fcCid=cid; _fcColsCur=cols; _fcSec=section;
   const tbody=document.getElementById(tbodyId);
   if(!tbody)return;
   tbody.innerHTML='';
+  const yb=ci=>ci>0&&cols[ci].m===1?'border-left:3px solid #8aa4d6;':''; // 연도 경계 구분선
 
   // key → item 빠른 조회
   const keyToItem={};
   items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
 
-  const effVal=(k, month)=>fcEffVal(cid,year,section,keyToItem[k],k,month,actFn);
+  const effVal=(k, c)=>fcEffVal(cid,c.y,section,keyToItem[k],k,c.m,actFn);
 
-  // 임의 item의 표시값 계산 (subtotal도 effVal 기반)
-  function dispVal(item, month){
-    if(item.t==='pnl_ref') return getPnlForecastNet(cid,year,month);
-    if(item.t==='i') return effVal(item.k,month);
-    if(item.t==='s') return item.ks.reduce((s,k)=>s+effVal(k,month),0);
+  // 임의 item의 표시값 계산 (subtotal도 effVal 기반). c={y,m}
+  function dispVal(item, c){
+    if(item.t==='pnl_ref') return getPnlForecastNet(cid,c.y,c.m);
+    if(item.t==='i') return effVal(item.k,c);
+    if(item.t==='s') return item.ks.reduce((s,k)=>s+effVal(k,c),0);
     if(item.t==='s2'){
-      return (item.p||[]).reduce((s,k)=>s+effVal(k,month),0)
-            -(item.m||[]).reduce((s,k)=>s+effVal(k,month),0);
+      return (item.p||[]).reduce((s,k)=>s+effVal(k,c),0)
+            -(item.m||[]).reduce((s,k)=>s+effVal(k,c),0);
     }
     if(item.t==='sc'){
       const ck=item.cat1Keys||{};
-      const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+effVal(k,month),0);
+      const sumC1=(c1)=>(ck[c1]||[]).reduce((s,k)=>s+effVal(k,c),0);
       const id=item.id;
       if(id==='매출이익')   return sumC1('매출액')+sumC1('매출원가');
       if(id==='영업이익')   return sumC1('매출액')+sumC1('매출원가')+sumC1('판매비와관리비');
@@ -4347,32 +4427,24 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
     if(item.t==='h'){
       const tr=document.createElement('tr');
       tr.style.cssText=`background:${item.bg||'#e8edf8'}`;
-      tr.innerHTML=`<td colspan="14" style="padding:5px 10px;font-weight:700;color:#2a4a8a;font-size:11px;border:1px solid #dde3f0">${item.l}</td>`;
+      tr.innerHTML=`<td colspan="${cols.length+2}" style="padding:5px 10px;font-weight:700;color:#2a4a8a;font-size:11px;border:1px solid #dde3f0">${item.l}</td>`;
       tbody.appendChild(tr);
       return;
     }
-    // 기말잔액 누적 행 특수 처리
+    // 기말잔액 누적 행 특수 처리 — 연도를 넘으면 다음 해 기초잔액(입력값 또는 이어진 예상값)부터 계속
     if(item.t==='bal_end'){
-      let base;
-      if(cid==='__all__'){
-        const allBases=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[year]);
-        const hasAny=allBases.some(b=>b!=null);
-        base=hasAny?allBases.reduce((s,b)=>s+(b??0),0):null;
-      } else {
-        base=ST.cfBaseBalance?.[cid]?.[year]??null;
-      }
+      const bals=fcBalanceCols(cid,cols);
+      const base=bals[0];
       const tr=document.createElement('tr');
       const lc=document.createElement('td');
       lc.style.cssText=`padding:4px 10px;border:1px solid #c8d8f8;font-size:12px;font-weight:800;background:#eef3fc;position:sticky;left:0;z-index:1;min-width:150px`;
       lc.textContent=item.l;
       tr.appendChild(lc);
-      let running=base;
       let lastVal=null;
-      for(let m=1;m<=12;m++){
-        const net=item.ks.reduce((s,k)=>s+effVal(k,m),0);
-        if(running!==null) running+=net;
+      for(let ci=0;ci<cols.length;ci++){
+        const running=bals[ci];
         const td=document.createElement('td');
-        td.style.cssText=`padding:3px 8px;border:1px solid #c8d8f8;text-align:right;font-size:12px;font-weight:700;background:#eef3fc`;
+        td.style.cssText=`padding:3px 8px;border:1px solid #c8d8f8;text-align:right;font-size:12px;font-weight:700;background:#eef3fc;${yb(ci)}`;
         if(running===null){
           td.innerHTML=`<span style="color:#aaa">-</span>`;
         } else {
@@ -4411,13 +4483,14 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
     lc.textContent=item.l;
     tr.appendChild(lc);
     let ann=0;
-    for(let m=1;m<=12;m++){
+    for(let ci=0;ci<cols.length;ci++){
+      const c=cols[ci], m=c.m, year=c.y;
       const td=document.createElement('td');
-      const v=dispVal(item,m);
+      const v=dispVal(item,c);
       ann+=v;
-      td.dataset.ri=ri; td.dataset.mi=m;
-      const isPastCell=item.t==='i'&&actFn&&isActualFcMonth(cid,year,m)&&actFn(item,m)!==null;
-      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':(isPastCell||isPnlRef)?'background:#f5f5f3':''}`;
+      td.dataset.ri=ri; td.dataset.mi=ci;
+      const isPastCell=item.t==='i'&&actFn&&isActualFcMonth(cid,year,m)&&actFn(item,m,year)!==null;
+      td.style.cssText=`padding:3px 8px;border:1px solid #eee;text-align:right;font-size:12px;${isSub?'background:#f0f4ff;font-weight:700':(isPastCell||isPnlRef)?'background:#f5f5f3':''};${yb(ci)}`;
       if(isPastCell||isPnlRef){
         let actHtml='';
         if(_fcCompare&&isPastCell){
@@ -4442,12 +4515,12 @@ function renderForecastTable(cid, year, items, section, tbodyId, actFn){
           td.addEventListener('mousedown',e=>{
             e.preventDefault();
             fcCommitEdit();
-            _fcAnchor={ri,mi:m};
+            _fcAnchor={ri,mi:ci};
             fcUpdateHL(tbody);
             const wrap=tbody.closest('[data-fc-wrap]');
             if(wrap) wrap.focus({preventScroll:true});
           });
-          td.addEventListener('dblclick',e=>{e.preventDefault();fcStartEdit(td,ri,m,false);});
+          td.addEventListener('dblclick',e=>{e.preventDefault();fcStartEdit(td,ri,ci,false);});
         }
       }
       tr.appendChild(td);
@@ -4499,7 +4572,8 @@ function fcStartEdit(td, ri, mi, clearVal){
   _fcAnchor={ri,mi};
   _fcEditActive=true;
   _fcEditTd=td;
-  const cur=clearVal?0:getForecastVal(_fcCid,_fcYear2,_fcSec,item.k,mi);
+  const col=_fcColsCur[mi]; if(!col) return;
+  const cur=clearVal?0:getForecastVal(_fcCid,col.y,_fcSec,item.k,col.m);
   const inp=document.createElement('input');
   inp.type='number';
   inp.value=cur||'';
@@ -4522,8 +4596,7 @@ function fcCommitEdit(){
     if(inp){
       const ri=+td.dataset.ri, mi=+td.dataset.mi;
       const item=_fcItems[ri];
-      if(item&&item.t==='i')
-        setForecastCell(_fcCid,_fcYear2,_fcSec,item.k,mi,parseInt(inp.value)||0);
+      if(item&&item.t==='i') fcSetAt(item,mi,parseInt(inp.value)||0);
     }
   }
   _fcEditActive=false; _fcEditTd=null; _fcEditInp=null;
@@ -4533,6 +4606,11 @@ function fcCommitEdit(){
 function fcRefreshTable(){
   renderForecast();
 }
+// 열 인덱스(mi) 기준 추정치 저장 — 열마다 연도가 다를 수 있음
+function fcSetAt(item,mi,val){
+  const col=_fcColsCur[mi]; if(!col) return;
+  setForecastCell(_fcCid,col.y,_fcSec,item.k,col.m,val);
+}
 
 function fcEditKD(e){
   const inp=e.target;
@@ -4540,7 +4618,7 @@ function fcEditKD(e){
     e.preventDefault();
     const ri=_fcAnchor.ri, mi=_fcAnchor.mi;
     const item=_fcItems[ri];
-    if(item&&item.t==='i') setForecastCell(_fcCid,_fcYear2,_fcSec,item.k,mi,parseInt(inp.value)||0);
+    if(item&&item.t==='i') fcSetAt(item,mi,parseInt(inp.value)||0);
     _fcEditActive=false; _fcEditTd=null; _fcEditInp=null;
     fcRefreshTable();
     // 이동
@@ -4562,7 +4640,7 @@ function fcEditKD(e){
     e.preventDefault();
     const ri=_fcAnchor.ri, mi=_fcAnchor.mi;
     const item=_fcItems[ri];
-    if(item&&item.t==='i') setForecastCell(_fcCid,_fcYear2,_fcSec,item.k,mi,parseInt(inp.value)||0);
+    if(item&&item.t==='i') fcSetAt(item,mi,parseInt(inp.value)||0);
     _fcEditActive=false; _fcEditTd=null; _fcEditInp=null;
     fcRefreshTable();
     fcMoveAnchor(e.key==='ArrowDown'?1:-1,0,true);
@@ -4582,7 +4660,7 @@ function fcGridKD(e){
   if(e.key==='Delete'||e.key==='Backspace'){
     e.preventDefault();
     const item=_fcItems[_fcAnchor.ri];
-    if(item&&item.t==='i'){setForecastCell(_fcCid,_fcYear2,_fcSec,item.k,_fcAnchor.mi,0);fcRefreshTable();}
+    if(item&&item.t==='i'){fcSetAt(item,_fcAnchor.mi,0);fcRefreshTable();}
     return;
   }
   // 숫자/부호 입력 → 즉시 편집 시작
@@ -4614,11 +4692,12 @@ function fcStartEditAnchor(clearVal){
 function fcMoveAnchor(dr,dc,startEdit2){
   const items=_fcItems.length?_fcItems:(_fcSec==='pnl'?buildPnlItems(_fcCid):CASH_ITEMS);
   let ri=_fcAnchor.ri, mi=_fcAnchor.mi;
-  if(ri<0){ri=0;mi=1;}
-  // 월 이동
+  const n=_fcColsCur.length||12;
+  if(ri<0){ri=0;mi=0;}
+  // 열 이동 (mi=열 인덱스 0..n-1, 끝에서 다음 행으로 넘어감)
   mi+=dc;
-  if(mi>12){mi=1;ri++;}
-  if(mi<1){mi=12;ri--;}
+  if(mi>n-1){mi=0;ri++;}
+  if(mi<0){mi=n-1;ri--;}
   // 행 이동: editable 행만
   ri+=dr;
   // 유효 범위 내 편집 가능 행 찾기
@@ -4797,66 +4876,48 @@ function importForecastXlsx(input, cid, year){
 
 // 메인 렌더 함수
 // ── 기말잔액 그래프 ──────────────────────────
-// 기말잔액 행(bal_end)과 동일한 로직으로 12개월 누적 잔액 배열 계산 (표와 정확히 일치)
-function computeCashBalanceRunning(cid, year){
-  let base;
-  if(cid==='__all__'){
-    const allBases=ST.companies.map(c=>ST.cfBaseBalance?.[c.id]?.[year]);
-    base=allBases.some(b=>b!=null)?allBases.reduce((s,b)=>s+(b??0),0):null;
-  } else base=ST.cfBaseBalance?.[cid]?.[year]??null;
-  if(base==null) return null;
-  const items=buildCashFcItems(cid);
-  const balItem=items.find(it=>it.t==='bal_end');
-  if(!balItem) return null;
-  const keyToItem={}; items.forEach(it=>{ if(it.k) keyToItem[it.k]=it; });
-  const effVal=(k,m)=>{
-    const it=keyToItem[k];
-    if(it&&it.t==='pnl_ref') return getPnlForecastNet(cid,year,m);
-    if(it&&isActualFcMonth(cid,year,m)){ const act=getCfItemActual(cid,year,it._cfItem,m); if(act!==null) return act; }
-    let b = cid==='__all__'
-      ? ST.companies.reduce((s,c)=>s+getForecastVal(c.id,year,'cash',k,m),0)
-      : getForecastVal(cid,year,'cash',k,m);
-    if(!isActualFcMonth(cid,year,m)) b+=fcDeltaAt('cash',k,m);
-    return b;
-  };
-  const running=[]; let acc=base;
-  for(let m=1;m<=12;m++){ acc+=balItem.ks.reduce((s,k)=>s+effVal(k,m),0); running.push(acc); }
-  return running;
+// 기간 열(cols)별 기말잔액 — 표의 기말잔액 행과 같은 계산(fcBalanceCols). 기초잔액 없으면 null
+function computeCashBalanceRunning(cid, cols){
+  const r=fcBalanceCols(cid,cols);
+  return r[0]==null?null:r;
 }
 // 퇴거 미반영/반영 두 시리즈를 함께 계산 (전역 토글을 잠시 바꿔 동일 로직 재사용 후 복원)
-function fcBalanceSeries(cid, year){
-  const savedApplied=_fcExitApplied, savedDelta=_fcExitDelta;
-  _fcExitApplied=false; const baseline=computeCashBalanceRunning(cid,year);
-  _fcExitApplied=true; _fcExitDelta=buildExitDelta(year); const scenario=computeCashBalanceRunning(cid,year);
-  _fcExitApplied=savedApplied; _fcExitDelta=savedDelta;
+function fcBalanceSeries(cid, cols){
+  const savedApplied=_fcExitApplied;
+  _fcExitApplied=false; const baseline=computeCashBalanceRunning(cid,cols);
+  _fcExitApplied=true; const scenario=computeCashBalanceRunning(cid,cols);
+  _fcExitApplied=savedApplied;
   return {baseline, scenario};
 }
-function fcExitMonthsForYear(year){
+// 열 인덱스 → 그 달 철수 예정 지점 수
+function fcExitCountsForCols(cols){
   const out={}; const branches=effBranches();
   effExitPlan().forEach(ep=>{
     if(!['확정','진행중'].includes(statusCatGlobal(ep.status))||!ep.exitMonth) return;
     const p=ep.exitMonth.split('-'); const ey=Number(p[0]), em=Number(p[1]);
-    if(ey!==Number(year)) return;
+    const ci=cols.findIndex(c=>c.y===ey&&c.m===em); if(ci<0) return;
     if(!branches.find(x=>x.id===ep.id)) return;
-    out[em]=(out[em]||0)+1;
+    out[ci]=(out[ci]||0)+1;
   });
   return out;
 }
-function renderFcBalanceChart(cid, year){
-  const {baseline, scenario}=fcBalanceSeries(cid, year);
+function renderFcBalanceChart(cid, cols){
+  const {baseline, scenario}=fcBalanceSeries(cid, cols);
   if(!baseline){
     return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:4px">📈 월별 기말잔액 추이</div>
       <div style="font-size:12px;color:#aaa;padding:18px;text-align:center">현금흐름 탭에서 기초잔액을 입력하면 잔액 그래프가 표시됩니다</div></div>`;
   }
-  const exitMonths=fcExitMonthsForYear(year);
+  const n=cols.length, multiY=cols[0].y!==cols[n-1].y;
+  const colLbl=(c,i)=>(multiY&&(i===0||c.m===1)?`${String(c.y).slice(2)}.`:'')+`${c.m}월`;
+  const exitMonths=fcExitCountsForCols(cols);
   const hasExit=Object.keys(exitMonths).length>0;
   const all=baseline.concat(scenario);
   let minV=Math.min(...all), maxV=Math.max(...all);
   if(minV===maxV){ minV-=1; maxV+=1; }
   const pad=(maxV-minV)*0.12; minV-=pad; maxV+=pad;
   const W=1100,H=300,mL=94,mR=24,mT=30,mB=28, cW=W-mL-mR, cH=H-mT-mB;
-  const xFor=m=> mL+(m-1)/11*cW;
+  const xFor=i=> mL+(n>1?i/(n-1):0.5)*cW; // i=열 인덱스
   const yFor=v=> mT+(maxV-v)/(maxV-minV)*cH;
   const fmtAxis=v=>{const a=Math.abs(v); if(a>=1e8)return (v/1e8).toFixed(1).replace(/\.0$/,'')+'억'; if(a>=1e4)return Math.round(v/1e4).toLocaleString('ko-KR')+'만'; return String(Math.round(v));};
   let grid='',yl='';
@@ -4864,25 +4925,27 @@ function renderFcBalanceChart(cid, year){
     grid+=`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#eee" stroke-width="1"/>`;
     yl+=`<text x="${mL-8}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="#999">${fmtAxis(v)}</text>`; }
   if(minV<0&&maxV>0){ const yz=yFor(0); grid+=`<line x1="${mL}" y1="${yz.toFixed(1)}" x2="${W-mR}" y2="${yz.toFixed(1)}" stroke="#bbb" stroke-width="1"/>`; }
+  // 연도 경계선
+  cols.forEach((c,i)=>{ if(i>0&&c.m===1){ const x=(xFor(i-1)+xFor(i))/2; grid+=`<line x1="${x.toFixed(1)}" y1="${mT}" x2="${x.toFixed(1)}" y2="${H-mB}" stroke="#8aa4d6" stroke-width="1.5"/>`; } });
   let xl='';
-  for(let m=1;m<=12;m++){ const p=isActualFcMonth(cid,year,m); xl+=`<text x="${xFor(m).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="10" fill="${p?'#bbb':'#3a6bcc'}">${m}월</text>`; }
+  cols.forEach((c,i)=>{ const p=isActualFcMonth(cid,c.y,c.m); xl+=`<text x="${xFor(i).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="10" fill="${p?'#bbb':'#3a6bcc'}">${colLbl(c,i)}</text>`; });
   let refs='';
-  Object.entries(exitMonths).forEach(([m,cnt])=>{ const x=xFor(Number(m));
+  Object.entries(exitMonths).forEach(([ci,cnt])=>{ const x=xFor(Number(ci));
     refs+=`<line x1="${x.toFixed(1)}" y1="${mT}" x2="${x.toFixed(1)}" y2="${H-mB}" stroke="#f87171" stroke-dasharray="3 3" stroke-width="1"/><text x="${x.toFixed(1)}" y="${(mT-3)}" text-anchor="middle" font-size="9" fill="#ef4444">${cnt}개 철수</text>`; });
-  const ptsB=baseline.map((v,i)=>`${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
-  const ptsS=scenario.map((v,i)=>`${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
-  let dots='',hovers=''; const colW=cW/11;
-  for(let m=1;m<=12;m++){ const bx=xFor(m), by=yFor(baseline[m-1]), sy=yFor(scenario[m-1]);
+  const ptsB=baseline.map((v,i)=>`${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
+  const ptsS=scenario.map((v,i)=>`${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
+  let dots='',hovers=''; const colW=n>1?cW/(n-1):cW;
+  cols.forEach((c,i)=>{ const bx=xFor(i), by=yFor(baseline[i]), sy=yFor(scenario[i]);
     dots+=`<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="2.5" fill="#9aa0a6"/>`;
     if(hasExit) dots+=`<circle cx="${bx.toFixed(1)}" cy="${sy.toFixed(1)}" r="2.5" fill="#16a34a"/>`;
-    const diff=scenario[m-1]-baseline[m-1];
-    const title=`${m}월\n퇴거 미반영: ${fmt(Math.round(baseline[m-1]))}원`+(hasExit?`\n퇴거 반영: ${fmt(Math.round(scenario[m-1]))}원\n차이: ${diff>=0?'+':''}${fmt(Math.round(diff))}원`:'');
+    const diff=scenario[i]-baseline[i];
+    const title=`${String(c.y).slice(2)}년 ${c.m}월\n퇴거 미반영: ${fmt(Math.round(baseline[i]))}원`+(hasExit?`\n퇴거 반영: ${fmt(Math.round(scenario[i]))}원\n차이: ${diff>=0?'+':''}${fmt(Math.round(diff))}원`:'');
     hovers+=`<rect x="${(bx-colW/2).toFixed(1)}" y="${mT}" width="${colW.toFixed(1)}" height="${cH}" fill="transparent"><title>${title}</title></rect>`;
-  }
+  });
   const scenarioLine=hasExit?`<polyline points="${ptsS}" fill="none" stroke="#16a34a" stroke-width="2.5"/>`:'';
   const legend=`<div style="display:flex;gap:16px;font-size:11px;color:#555;margin-top:6px;flex-wrap:wrap;align-items:center">
     <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;border-top:2px solid #9aa0a6"></span>퇴거 미반영(현재)</span>
-    ${hasExit?'<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;border-top:2px solid #16a34a"></span>퇴거계획 반영</span><span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;border-top:1px dashed #f87171"></span>철수 시점</span>':'<span style="color:#aaa">· 이 연도에 반영할 퇴거계획 없음 (두 선 동일)</span>'}
+    ${hasExit?'<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:14px;border-top:2px solid #16a34a"></span>퇴거계획 반영</span><span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;border-top:1px dashed #f87171"></span>철수 시점</span>':'<span style="color:#aaa">· 이 기간에 반영할 퇴거계획 없음 (두 선 동일)</span>'}
   </div>`;
   return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:16px">
     <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:8px">📈 월별 기말잔액 추이 — 퇴거계획 반영 전후 비교</div>
@@ -4918,26 +4981,42 @@ function renderRentKpiCard(cid, year){
 function renderForecast(){
   if(!curCo){document.getElementById('forecast-content').innerHTML='<p style="color:#aaa;padding:20px">법인을 선택해주세요</p>';return;}
   _fcInvalidate(); // 렌더 시작마다 최신 실적으로 인덱스 재빌드
-  const cid=curCo; const year=_fcYear;
-  ensureForecast(cid,year);
-  _fcDoneDelta=buildExitDelta(year,'done'); // 퇴거완료분은 항상 반영
-  if(_fcExitApplied) _fcExitDelta=buildExitDelta(year);
+  const cid=curCo;
+  const cols=fcCols(), years=[...new Set(cols.map(c=>c.y))];
+  const first=cols[0], last=cols[cols.length-1];
+  const fullYear=years.length===1&&cols.length===12; // 한 해 1~12월 그대로면 '연간' 표기
+  const pLbl=c=>`${String(c.y).slice(2)}.${String(c.m).padStart(2,'0')}`;
+  const periodLbl=fullYear?`${first.y}년`:`${pLbl(first)}~${pLbl(last)}`;
+  if(!years.includes(Number(_fcYear))) _fcYear=String(first.y);
+  const year=_fcYear; // 엑셀 입출력 등 연 단위 기능의 기준 연도
+  years.forEach(y=>ensureForecast(cid,String(y)));
+  fcBuildDeltas(years); // 연도별 퇴거 델타 (완료분 항상 + 계획분 토글 ON)
 
-  // 연간 요약 계산 — 표의 '연간전망'과 동일하게 실적월=실적, 나머지=예측+퇴거 반영
+  // 기간 요약 — 표의 합계 열과 동일하게 실적월=실적, 나머지=예측+퇴거 반영
   const pnlItems=buildPnlItems(cid);
-  const pnlActFn=fcPnlActFn(cid,year);
-  const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(let m=1;m<=12;m++)s+=fcEffVal(cid,year,'pnl',i,i.k,m,pnlActFn);return s;},0);
+  const pnlActFn=fcPnlActFn(cid);
+  const sumCat1Annual=(c1)=>pnlItems.filter(i=>i.t==='i'&&i.cat1===c1).reduce((s,i)=>{for(const c of cols)s+=fcEffVal(cid,c.y,'pnl',i,i.k,c.m,pnlActFn);return s;},0);
   const totalRev=sumCat1Annual('매출액');
   const netProfit=sumCat1Annual('매출액')+sumCat1Annual('매출원가')+sumCat1Annual('판매비와관리비')+sumCat1Annual('영업외수익')+sumCat1Annual('영업외비용')+sumCat1Annual('법인세');
 
-  const rentCard=renderRentKpiCard(cid,year);
+  const rkY=ST.rentKpi?.year;
+  const rentCard=renderRentKpiCard(cid,years.some(y=>y===Number(rkY))?Number(rkY):first.y);
+
+  // 기간 선택 옵션: 작년 1월 ~ 내년 12월
+  const cy=new Date().getFullYear(), ymOpts=[];
+  for(let y=cy-1;y<=cy+1;y++) for(let m=1;m<=12;m++) ymOpts.push({y,m});
+  const ymSel=(id,cur)=>`<select id="${id}" onchange="fcPeriodChange()" style="padding:4px 8px;border:1px solid #ccc;border-radius:5px;font-size:12px">${ymOpts.map(o=>`<option value="${o.y}-${o.m}" ${o.y===cur.y&&o.m===cur.m?'selected':''}>${pLbl(o)}</option>`).join('')}</select>`;
+  const pbtn=(kind,lbl)=>`<button onclick="fcPreset('${kind}')" style="padding:3px 10px;border:1px solid #ddd;border-radius:14px;background:#fff;color:#555;font-size:11px;cursor:pointer">${lbl}</button>`;
+  // 다음 연도 기초잔액을 입력하지 않았으면 전년도 12월 예상 잔액에서 이어짐을 안내
+  const chained=years.slice(1).filter(y=>fcBaseOf(cid,y)==null);
+  const chainNote=chained.length?`<span style="font-size:11px;color:#999">· ${chained.map(y=>String(y).slice(2)+'년').join('·')} 기초잔액 = 전년도 12월 예상 기말잔액</span>`:'';
 
   document.getElementById('forecast-content').innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-      <span style="font-size:12px;color:#888">연도</span>
-      <select onchange="_fcYear=this.value;renderForecast()" style="padding:4px 10px;border:1px solid #ccc;border-radius:5px;font-size:12px">
-        ${[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=>`<option value="${y}" ${y==year?'selected':''}>${y}년</option>`).join('')}
-      </select>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#888">기간</span>
+      ${ymSel('fcFrom',first)}<span style="color:#aaa">~</span>${ymSel('fcTo',last)}
+      ${pbtn('year',`올해(${String(cy).slice(2)}년)`)}${pbtn('next',`${String(cy).slice(2)}.01~${String(cy+1).slice(2)}.03`)}
+      ${chainNote}
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
         <span style="font-size:12px;color:#888">실적 비교</span>
         <label style="position:relative;width:36px;height:20px;display:inline-block">
@@ -4947,11 +5026,11 @@ function renderForecast(){
         </label>
       </div>
     </div>
-    ${renderFcBalanceChart(cid,year)}
+    ${renderFcBalanceChart(cid,cols)}
     <div style="display:grid;grid-template-columns:repeat(${rentCard?4:3},1fr);gap:10px;margin-bottom:16px">
       ${rentCard}
-      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 매출</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
-      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">연간 예상 순이익</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">${fullYear?'연간':'기간'} 예상 매출${fullYear?'':` <span style="color:#bbb">(${periodLbl})</span>`}</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">${fullYear?'연간':'기간'} 예상 순이익${fullYear?'':` <span style="color:#bbb">(${periodLbl})</span>`}</div><div style="font-size:18px;font-weight:700;color:${netProfit>=0?'#1a7a4a':'#c0392b'}">${fmtB(netProfit)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">실적 비교</div><div style="font-size:14px;font-weight:600;color:${_fcCompare?'#3a6bcc':'#aaa'}">${_fcCompare?'ON — 비교 중':'OFF'}</div></div>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
@@ -4959,19 +5038,20 @@ function renderForecast(){
       <button onclick="_fcSection='cash';renderForecast()" style="padding:5px 14px;border:1px solid ${_fcSection==='cash'?'#3a6bcc':'#ddd'};border-radius:20px;background:${_fcSection==='cash'?'#3a6bcc':'#fff'};color:${_fcSection==='cash'?'#fff':'#666'};font-size:12px;cursor:pointer">현금 추정</button>
       <button onclick="toggleFcExit()" style="padding:5px 14px;border:1px solid ${_fcExitApplied?'#166534':'#ddd'};border-radius:20px;background:${_fcExitApplied?'#dcfce7':'#fff'};color:${_fcExitApplied?'#166534':'#666'};font-size:12px;cursor:pointer;font-weight:${_fcExitApplied?'700':'400'}">${_fcExitApplied?'✓ 퇴거계획 반영 중':'🏢 퇴거계획 반영'}</button>
       <span style="font-size:11px;color:#999">퇴거완료 지점은 항상 반영됨 · 버튼은 아직 안 나간 확정·진행중 지점만</span>
-      <div style="margin-left:auto;display:flex;gap:6px">
-        <button onclick="exportForecastXlsx('${cid}','${year}')" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
-        <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}','${year}')"></label>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        ${years.length>1?`<select id="fcIoYear" title="엑셀 입출력은 연도 단위" onchange="_fcYear=this.value" style="padding:3px 6px;border:1px solid #ccc;border-radius:5px;font-size:11px">${years.map(y=>`<option value="${y}" ${String(y)===String(year)?'selected':''}>${y}년</option>`).join('')}</select>`:''}
+        <button onclick="exportForecastXlsx('${cid}',_fcYear)" class="btn" style="font-size:11px;padding:4px 10px">📥 엑셀 내보내기</button>
+        <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📤 엑셀 가져오기<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importForecastXlsx(this,'${cid}',_fcYear)"></label>
       </div>
     </div>
     <div id="fcTableWrap">
       <!-- 세로 max-height + overflow:auto → thead sticky가 실제로 걸림 (overflow-x만 있으면 sticky 미동작) -->
       <div data-fc-wrap tabindex="0" style="overflow:auto;max-height:calc(100vh - 200px);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);background:#fff;outline:none">
-        <table style="border-collapse:collapse;width:100%;min-width:1100px">
+        <table style="border-collapse:collapse;width:100%;min-width:${Math.max(1100,150+cols.length*82+90)}px">
           <thead><tr style="background:#f0f0ec">
             <th style="padding:6px 10px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:left;min-width:150px;position:sticky;left:0;top:0;z-index:4;background:#f0f0ec">항목</th>
-            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const p=isActualFcMonth(cid,_fcYear,m);return`<th style="padding:4px 8px;font-size:11px;border:1px solid #e4e4de;text-align:center;white-space:nowrap;background:${p?'#ebebea':'#eef3fc'};color:${p?'#777':'#3a6bcc'};position:sticky;top:0;z-index:3">${m}월<div style="font-size:9px;font-weight:400">${p?'실적':'예측'}</div></th>`;}).join('')}
-            <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap;position:sticky;top:0;z-index:3;background:#f0f0ec">연간전망</th>
+            ${cols.map((c,i)=>{const p=isActualFcMonth(cid,c.y,c.m);const yb=i>0&&c.m===1;const showY=years.length>1&&(i===0||c.m===1);return`<th style="padding:4px 8px;font-size:11px;border:1px solid #e4e4de;${yb?'border-left:3px solid #8aa4d6;':''}text-align:center;white-space:nowrap;background:${p?'#ebebea':'#eef3fc'};color:${p?'#777':'#3a6bcc'};position:sticky;top:0;z-index:3">${showY?`<div style="font-size:9px;font-weight:700;color:#555">${String(c.y).slice(2)}년</div>`:''}${c.m}월<div style="font-size:9px;font-weight:400">${p?'실적':'예측'}</div></th>`;}).join('')}
+            <th style="padding:6px 8px;font-size:11px;color:#555;border:1px solid #e4e4de;text-align:center;white-space:nowrap;position:sticky;top:0;z-index:3;background:#f0f0ec">${fullYear?'연간전망':'기간 합계'}</th>
           </tr></thead>
           <tbody id="${_fcSection}FcBody"></tbody>
         </table>
@@ -4979,13 +5059,9 @@ function renderForecast(){
     </div>
   `;
   if(_fcSection==='pnl'){
-    renderForecastTable(cid,year,pnlItems,'pnl','pnlFcBody',pnlActFn);
+    renderForecastTable(cid,cols,pnlItems,'pnl','pnlFcBody',pnlActFn);
   } else if(_fcSection==='cash'){
-    const actFn=(item,month)=>{
-      if(item._cfItem) return getCfItemActual(cid,year,item._cfItem,month);
-      return null;
-    };
-    renderForecastTable(cid,year,buildCashFcItems(cid),'cash','cashFcBody',actFn);
+    renderForecastTable(cid,cols,buildCashFcItems(cid),'cash','cashFcBody',fcCashActFn(cid));
   } else {
     _fcSection='pnl';
     renderForecast();
@@ -5311,14 +5387,14 @@ function applyBranchSim(){
   Object.keys(_brSim).forEach(id=>{ if(!Object.keys(_brSim[id]).length) delete _brSim[id]; });
   _brSimMode=Object.keys(_brSim).length>0;
   _brEditMode=false;
-  _fcDoneDelta=buildExitDelta(_fcYear,'done'); if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);  // 추정 탭 연동 갱신
+  _fcDeltas={};  // 추정 탭 연동 갱신 (다음 추정 렌더에서 재빌드)
   renderBranches();
 }
 
 // 시뮬 초기화 — 실제값으로 복귀
 function clearBranchSim(){
   _brSim={}; _brSimMode=false; _brEditMode=false;
-  _fcDoneDelta=buildExitDelta(_fcYear,'done'); if(_fcExitApplied) _fcExitDelta=buildExitDelta(_fcYear);
+  _fcDeltas={};
   renderBranches();
 }
 
