@@ -267,7 +267,7 @@ tr.br-edit-row{background:#f8faff!important}
           <button class="btn" onclick="backupData()" id="btn-backup" title="전체 데이터를 JSON으로 백업" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;">💾 백업</button>
           <button class="btn" onclick="exportExcel()" id="btn-export">📥 내보내기</button>
           <button class="btn" onclick="openBulkEdit()" id="btn-bulk" style="background:#fff7ed;border-color:#fed7aa;color:#c2410c;">📝 일괄등록</button>
-          <button class="btn" onclick="runFixedRules()" id="btn-rules" style="background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;">📋 고정규칙 분류</button>
+          <button class="btn" onclick="runFixedRules()" id="btn-rules" style="background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;">📋 규칙·이력 분류</button>
           <button class="btn ai-btn" onclick="openAI()" id="btn-ai">🤖 AI 분류</button>
           <button class="btn" onclick="openAutoSplit()" id="btn-split" style="background:#f0f7ff;border-color:#bfdbfe;color:#1d4ed8;">✂ 자동분할</button>
         </div>
@@ -3075,52 +3075,119 @@ function applyBulkEdit(){
 }
 
 // ══════════════════════════════════════════════
-// 고정규칙 분류
+// 고정규칙 + 이력 분류 (규칙 우선 → 과거 분류 이력)
 // ══════════════════════════════════════════════
+const HIST_MIN_N=3, HIST_MIN_RATIO=0.9;
+const _histNorm=s=>String(s||'').replace(/\d+H?/g,'').replace(/[\s\-_.()\[\]㈜*]/g,'');
+// 과거 분류 이력 집계: 키(기재내용+입금/지급) → {n, labs:Map('cat1␁cat2' → {n, sub:Map('cat3␁cat4'→n)})}
+function buildHistStats(cid){
+  const SEP='\x01', st={exact:new Map(), norm:new Map()};
+  getRows(cid).forEach(r=>{
+    if(!r.cat1||!r.cat2)return;
+    if(r.splitParent&&r.cat3==='이체수수료')return; // 자동분할 수수료 행은 부모 기재내용을 물려받아 이력을 흐림
+    const inc=num(r.income),exp=num(r.expense);if(!inc&&!exp)return;
+    const dir=inc?'입':'지', desc=String(r.desc||'').trim();
+    [['exact',desc],['norm',_histNorm(desc)]].forEach(([kind,d])=>{
+      if(!d)return;
+      const key=d+SEP+dir;
+      let e=st[kind].get(key);if(!e){e={n:0,labs:new Map()};st[kind].set(key,e);}
+      e.n++;
+      const lk=r.cat1+SEP+r.cat2;
+      let l=e.labs.get(lk);if(!l){l={n:0,sub:new Map()};e.labs.set(lk,l);}
+      l.n++;
+      const sk=(r.cat3||'')+SEP+(r.cat4||'');l.sub.set(sk,(l.sub.get(sk)||0)+1);
+    });
+  });
+  return st;
+}
+// 미분류 행 하나에 대한 이력 제안. 확실(3건+90%)이 아니면 후보만 반환
+function suggestFromHist(st,cid,r){
+  const SEP='\x01', dir=num(r.income)?'입':'지', desc=String(r.desc||'').trim();
+  let fallback=null;
+  for(const [kind,d] of [['exact',desc],['norm',_histNorm(desc)]]){
+    if(!d)continue;
+    const e=st[kind].get(d+SEP+dir);if(!e)continue;
+    const labs=[...e.labs.entries()].sort((a,b)=>b[1].n-a[1].n);
+    const cands=[];
+    for(const [lk,l] of labs){
+      const [c1,c2]=lk.split(SEP);
+      if(cat1FromCat2(cid,c2)!==c1)continue; // 계정과목에서 삭제·이동된 분류는 제안 안 함
+      // 소분류·소속은 이력이 90% 이상 일관될 때만 채움
+      const [sk,sn]=[...l.sub.entries()].sort((a,b)=>b[1]-a[1])[0];
+      const [c3,c4]=sn/l.n>=HIST_MIN_RATIO?sk.split(SEP):['',''];
+      cands.push({cat1:c1,cat2:c2,cat3:c3,cat4:c4,n:l.n});
+      if(cands.length>=3)break;
+    }
+    if(!cands.length)continue;
+    const top=labs[0][1].n;
+    const confident=e.n>=HIST_MIN_N&&top/e.n>=HIST_MIN_RATIO&&cands[0].n===top;
+    const res={cands,confident,basis:`과거 ${e.n}건 중 ${cands[0].n}건`+(kind==='norm'?' (유사 내용)':'')};
+    if(confident)return res;
+    if(!fallback)fallback=res;
+  }
+  return fallback;
+}
 function runFixedRules(){
-  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===curCo);
-  if(!rules.length){alert('등록된 고정 규칙이 없습니다.\n학습 탭 → 고정 규칙에서 추가하세요.');return;}
-  const unclassed=getRows(curCo).filter(r=>!r.cat2&&(num(r.income)||num(r.expense))&&!r.splitGroup);
+  const cid=curCo;
+  const rules=(ST.fixedRules||[]).filter(r=>r.companyId===cid);
+  const unclassed=getRows(cid).filter(r=>!r.cat2&&(num(r.income)||num(r.expense))&&!r.splitGroup);
   if(!unclassed.length){alert('분류할 항목이 없습니다.');return;}
+  const st=buildHistStats(cid);
   const proposals=[];
   unclassed.forEach(r=>{
     const m=rules.find(ru=>r.desc?.includes(ru.keyword));
-    if(m) proposals.push({row:r,cat1:m.cat1,cat2:m.cat2||'',cat3:m.cat3||'',cat4:m.cat4||''});
+    if(m){proposals.push({row:r,src:'rule',basis:`규칙: ${m.keyword}`,checked:true,cands:[{cat1:m.cat1,cat2:m.cat2||'',cat3:m.cat3||'',cat4:m.cat4||''}]});return;}
+    const h=suggestFromHist(st,cid,r);
+    if(h)proposals.push({row:r,src:h.confident?'hist':'cand',basis:h.basis,checked:h.confident,cands:h.cands});
   });
-  if(!proposals.length){alert('현재 미분류 항목 중 고정 규칙에 해당하는 항목이 없습니다.');return;}
+  if(!proposals.length){alert('현재 미분류 항목 중 고정 규칙이나 과거 이력으로 제안할 항목이 없습니다.');return;}
+  const ord={rule:0,hist:1,cand:2};
+  proposals.sort((a,b)=>ord[a.src]-ord[b.src]);
   showFixedRulesPreview(proposals);
 }
 
 function showFixedRulesPreview(proposals){
   const old=document.getElementById('_frPreviewOverlay');if(old)old.remove();
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const cnt={rule:0,hist:0,cand:0};proposals.forEach(p=>cnt[p.src]++);
+  const SRC={rule:['규칙','#6d28d9','#f5f3ff'],hist:['이력','#1a7a4a','#ecfdf3'],cand:['후보','#b45309','#fffbeb']};
+  const labOf=c=>c.cat1+' › '+c.cat2+(c.cat3?' › '+c.cat3:'')+(c.cat4?' ['+c.cat4+']':'');
   const ov=document.createElement('div');
   ov.id='_frPreviewOverlay';
   ov.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
-  let html='<div style="background:#fff;border-radius:12px;padding:24px;width:860px;max-height:80vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 8px 40px rgba(0,0,0,.3);">';
+  const th='padding:8px;border-bottom:1px solid #e5e5e5;position:sticky;top:0;background:#f9f9f9;';
+  let html='<div style="background:#fff;border-radius:12px;padding:24px;width:980px;max-width:96vw;max-height:84vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 40px rgba(0,0,0,.3);">';
   html+='<div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">';
-  html+='<h3 style="margin:0;font-size:15px;">📋 고정규칙 분류 결과 검토 ('+proposals.length+'건)</h3>';
-  html+='<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="_frChkAll" checked> 전체선택</label>';
+  html+='<h3 style="margin:0;font-size:15px;">📋 규칙·이력 분류 검토 ('+proposals.length+'건)</h3>';
+  html+='<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="_frChkAll"> 전체선택</label>';
   html+='</div>';
+  html+=`<div style="font-size:11px;color:#666;line-height:1.6;flex-shrink:0">규칙 ${cnt.rule}건 · 이력 ${cnt.hist}건(과거 ${HIST_MIN_N}건 이상·${Math.round(HIST_MIN_RATIO*100)}% 일치) · 후보 ${cnt.cand}건(분류가 갈리거나 이력이 적음 — 확인 후 체크)<br>고정규칙이 이력보다 우선합니다. 소분류·소속은 이력이 일관될 때만 채웁니다.</div>`;
   html+='<div style="overflow-y:auto;flex:1;border:1px solid #e5e5e5;border-radius:6px;">';
   html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-  html+='<thead style="background:#f9f9f9;"><tr>';
-  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:32px;position:sticky;top:0;background:#f9f9f9;"></th>';
-  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:left;position:sticky;top:0;background:#f9f9f9;">기재내용</th>';
-  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;text-align:right;width:120px;position:sticky;top:0;background:#f9f9f9;">금액</th>';
-  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:110px;position:sticky;top:0;background:#f9f9f9;">대분류</th>';
-  html+='<th style="padding:8px;border-bottom:1px solid #e5e5e5;width:130px;position:sticky;top:0;background:#f9f9f9;">중분류</th>';
+  html+='<thead><tr>';
+  html+=`<th style="${th}width:32px;"></th>`;
+  html+=`<th style="${th}width:46px;">출처</th>`;
+  html+=`<th style="${th}text-align:left;">기재내용</th>`;
+  html+=`<th style="${th}text-align:right;width:110px;">금액</th>`;
+  html+=`<th style="${th}text-align:left;width:330px;">분류</th>`;
+  html+=`<th style="${th}text-align:left;width:150px;">근거</th>`;
   html+='</tr></thead><tbody>';
   proposals.forEach(function(p,i){
-    const amtNum=p.row.income?Number(p.row.income):Number(p.row.expense);
-    const amtStr=(p.row.income?'+':'-')+amtNum.toLocaleString()+'원';
-    const amtColor=p.row.income?'#1a7a4a':'#c0392b';
+    const amtNum=num(p.row.income)?num(p.row.income):num(p.row.expense);
+    const amtStr=(num(p.row.income)?'+':'-')+amtNum.toLocaleString()+'원';
+    const amtColor=num(p.row.income)?'#1a7a4a':'#c0392b';
     const bg=i%2===0?'#fff':'#fafafa';
+    const [sl,sc,sb]=SRC[p.src];
+    const catCell=p.cands.length>1
+      ?`<select class="_frCandSel" data-idx="${i}" style="width:100%;font-size:11px">${p.cands.map((c,j)=>`<option value="${j}">${esc(labOf(c))} (${c.n}건)</option>`).join('')}</select>`
+      :esc(labOf(p.cands[0]));
     html+='<tr style="border-bottom:1px solid #f0f0f0;background:'+bg+';">';
-    html+='<td style="padding:7px 8px;text-align:center;"><input type="checkbox" class="_frRowChk" data-idx="'+i+'" checked></td>';
-    html+='<td style="padding:7px 8px;">'+(p.row.desc||'')+'</td>';
+    html+='<td style="padding:7px 8px;text-align:center;"><input type="checkbox" class="_frRowChk" data-idx="'+i+'"'+(p.checked?' checked':'')+'></td>';
+    html+=`<td style="padding:7px 4px;text-align:center"><span style="font-size:10px;padding:2px 6px;border-radius:3px;color:${sc};background:${sb}">${sl}</span></td>`;
+    html+='<td style="padding:7px 8px;">'+esc(p.row.desc)+'<div style="font-size:10px;color:#aaa">'+esc(p.row.date)+'</div></td>';
     html+='<td style="padding:7px 8px;text-align:right;color:'+amtColor+';font-variant-numeric:tabular-nums;">'+amtStr+'</td>';
-    html+='<td style="padding:7px 8px;">'+(p.cat1||'<span style="color:#bbb">-</span>')+'</td>';
-    html+='<td style="padding:7px 8px;">'+(p.cat2||'<span style="color:#bbb">-</span>')+'</td>';
+    html+='<td style="padding:7px 8px;">'+catCell+'</td>';
+    html+='<td style="padding:7px 8px;font-size:11px;color:#888">'+esc(p.basis)+'</td>';
     html+='</tr>';
   });
   html+='</tbody></table></div>';
@@ -3130,21 +3197,28 @@ function showFixedRulesPreview(proposals){
   html+='</div></div>';
   ov.innerHTML=html;
   document.body.appendChild(ov);
-  document.getElementById('_frChkAll').onchange=function(){
-    const v=this.checked;document.querySelectorAll('._frRowChk').forEach(c=>{c.checked=v;});
-  };
+  const allChk=document.getElementById('_frChkAll');
+  const syncAll=()=>{const cs=[...document.querySelectorAll('._frRowChk')];const k=cs.filter(c=>c.checked).length;allChk.checked=k===cs.length;allChk.indeterminate=k>0&&k<cs.length;};
+  syncAll();
+  allChk.onchange=function(){const v=this.checked;document.querySelectorAll('._frRowChk').forEach(c=>{c.checked=v;});};
+  document.querySelectorAll('._frRowChk').forEach(c=>c.onchange=syncAll);
+  // 후보를 고르면 그 행을 체크
+  document.querySelectorAll('._frCandSel').forEach(s=>s.onchange=function(){const c=document.querySelector(`._frRowChk[data-idx="${this.dataset.idx}"]`);if(c){c.checked=true;syncAll();}});
   document.getElementById('_frCancelBtn').onclick=()=>ov.remove();
   document.getElementById('_frApplyBtn').onclick=function(){
     const idxs=Array.from(document.querySelectorAll('._frRowChk')).filter(c=>c.checked).map(c=>parseInt(c.dataset.idx));
+    const pick={};document.querySelectorAll('._frCandSel').forEach(s=>{pick[s.dataset.idx]=parseInt(s.value)||0;});
     ov.remove();
     if(!idxs.length){alert('선택된 항목이 없습니다.');return;}
     pushUndo();
+    let cnt=0;
     idxs.forEach(i=>{
-      const p=proposals[i];
-      p.row.cat1=p.cat1;p.row.cat2=p.cat2;p.row.cat3=p.cat3;p.row.cat4=p.cat4;
+      const p=proposals[i];if(p.row.cat2)return; // 검토 중 다른 경로로 분류된 행은 건드리지 않음
+      const c=p.cands[pick[i]||0];
+      p.row.cat1=c.cat1;p.row.cat2=c.cat2;p.row.cat3=c.cat3;p.row.cat4=c.cat4;cnt++;
     });
     save();renderLedger();
-    alert(`✅ ${idxs.length}건 적용 완료`);
+    alert(`✅ ${cnt}건 적용 완료`);
   };
 }
 
@@ -3394,26 +3468,47 @@ function confirmImport(){
     });
     alert(dupCount>0?`${count}건 추가 완료 (중복 ${dupCount}건 제외)`:`${count}건 완료`);
   } else if(type==='card'){
-    let matched=0,unmatched=0;
+    let matched=0,unmatched=0,nameSkip=0,ambSkip=0,kept=0,classified=0;
+    const unknownPurpose=new Set(), skipped=[];
     const normDate=d=>{const m=String(d||'').match(/(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})/);return m?`${m[1]}${m[2]}${m[3]}`:'';};
+    // 사용처 ↔ 기재내용 비교용 정규화 (은행 기재내용은 가맹점명이 앞 몇 글자로 잘려 찍힘)
+    const normName=s=>String(s||'').replace(/주식회사|\(주\)|㈜|\(유\)|유한회사/g,'').replace(/[\s()\[\]\-_.,*·]/g,'').toLowerCase();
+    const sameName=(a,b)=>{a=normName(a);b=normName(b);if(!a||!b)return false;const k=Math.min(4,a.length,b.length);return a.includes(b.slice(0,k))||b.includes(a.slice(0,k));};
     data.forEach(r=>{
       const date=String(r['사용일시']||'').trim(),amount=num(r['사용금액']||0),purpose=String(r['용도']||'').trim(),note=String(r['내용']||'').trim();
+      const place=String(r['사용처']||'').trim();
       if(!date&&!amount)return;
       const dk=normDate(date);
       const absAmt=Math.abs(amount);
       const isRefund=amount<0;
-      const mr=isRefund
-        ? ST.rows.find(row=>row.companyId===cid&&normDate(row.date)===dk&&num(row.income)===absAmt&&!row._cm)
-        : ST.rows.find(row=>row.companyId===cid&&normDate(row.date)===dk&&num(row.expense)===absAmt&&!row._cm);
-      if(mr){
-        if(purpose){const res=resolveCardPurpose(purpose,cid);mr.cat2=res.cat2;if(res.cat1)mr.cat1=res.cat1;if(res.cat3)mr.cat3=res.cat3;}
-        mr.note=note||mr.note;
-        mr._cm=true;matched++;
-      } else{
-        unmatched++;
+      const cands=ST.rows.filter(row=>row.companyId===cid&&!row._cm&&normDate(row.date)===dk&&num(isRefund?row.income:row.expense)===absAmt);
+      let mr=null;
+      if(!cands.length){unmatched++;return;}
+      if(place){
+        // 같은 날·같은 금액이어도 가맹점명이 맞는 행에만 붙임 (같은 금액 계좌이체에 잘못 붙는 것 방지)
+        mr=cands.find(row=>sameName(row.desc,place));
+        if(!mr){nameSkip++;skipped.push(`${date} ${place} ${absAmt.toLocaleString()}원`);return;}
+      } else {
+        // 사용처가 없으면 후보가 딱 하나일 때만
+        if(cands.length>1){ambSkip++;skipped.push(`${date} ${absAmt.toLocaleString()}원 (후보 ${cands.length}건)`);return;}
+        mr=cands[0];
       }
+      if(mr.cat2){kept++;} // 이미 분류된 행은 분류를 덮어쓰지 않음
+      else if(purpose){
+        const res=resolveCardPurpose(purpose,cid);
+        // 계정과목에 없는 용도는 비워둠 (중분류에 그대로 넣으면 대분류가 이전 값으로 남아 엉뚱한 조합이 됨)
+        if(res.cat1){mr.cat1=res.cat1;mr.cat2=res.cat2;mr.cat3=res.cat3;classified++;}
+        else unknownPurpose.add(purpose);
+      }
+      mr.note=note||mr.note;
+      mr._cm=true;matched++;
     });
-    alert(`매칭:${matched}건 / 미매칭(스킵):${unmatched}건`);
+    let msg=`매칭 ${matched}건 (분류 입력 ${classified}건 · 기존 분류 유지 ${kept}건)\n미매칭(같은 날·금액 없음) ${unmatched}건`;
+    if(nameSkip)msg+=`\n사용처 불일치로 건너뜀 ${nameSkip}건`;
+    if(ambSkip)msg+=`\n같은 날·금액 후보가 여러 건이라 건너뜀 ${ambSkip}건`;
+    if(skipped.length)msg+=`\n  - `+skipped.slice(0,10).join('\n  - ')+(skipped.length>10?`\n  … 외 ${skipped.length-10}건`:'');
+    if(unknownPurpose.size)msg+=`\n\n계정과목에 없는 용도라 분류 비워둠: ${[...unknownPurpose].join(', ')}\n(설정에서 중분류로 추가하거나 규칙·이력 분류로 채우세요)`;
+    alert(msg);
   } else if(type==='accounts'){
     ensAc(cid);let added=0;
     data.forEach(r=>{
