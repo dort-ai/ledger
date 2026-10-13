@@ -1159,7 +1159,16 @@ function getFiltered(){
       rows=rows.filter(r=>String(r[k]||'').toLowerCase().includes(v.toLowerCase()));
     }
   }
-  if(sortKey){const d=sortAsc?1:-1;rows=[...rows].sort((a,b)=>String(a[sortKey]||'').localeCompare(String(b[sortKey]||''))*d);}
+  if(sortKey){
+    // 분할 행(└)은 부모 기준으로 정렬해 부모 바로 아래 유지 — 따로 정렬되면 엉뚱한 행 밑에 붙어 다른 행이 분할된 것처럼 보임
+    const d=sortAsc?1:-1, byId=new Map(rows.map(r=>[r.id,r])), pos=new Map(rows.map((r,i)=>[r.id,i]));
+    const head=r=>(r.splitParent&&byId.get(r.splitParent))||r;
+    rows=[...rows].sort((a,b)=>{
+      const ha=head(a),hb=head(b);
+      if(ha!==hb)return String(ha[sortKey]||'').localeCompare(String(hb[sortKey]||''))*d||pos.get(ha.id)-pos.get(hb.id);
+      return (a===ha?0:1)-(b===hb?0:1)||pos.get(a.id)-pos.get(b.id);
+    });
+  }
   return rows;
 }
 
