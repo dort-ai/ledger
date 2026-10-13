@@ -3079,6 +3079,8 @@ function applyBulkEdit(){
 // ══════════════════════════════════════════════
 const HIST_MIN_N=3, HIST_MIN_RATIO=0.9;
 const _histNorm=s=>String(s||'').replace(/\d+H?/g,'').replace(/[\s\-_.()\[\]㈜*]/g,'');
+// 사람 이름 입금(기재내용이 한글 2~4자뿐) — 같은 사람이 여러 성격의 돈을 보내 이력이 틀리기 쉬움. 일괄등록에서 처리
+const _isPersonDeposit=r=>num(r.income)>0&&/^[가-힣]{2,4}$/.test(String(r.desc||'').trim());
 // 과거 분류 이력 집계: 키(기재내용+입금/지급) → {n, labs:Map('cat1␁cat2' → {n, sub:Map('cat3␁cat4'→n)})}
 function buildHistStats(cid){
   const SEP='\x01', st={exact:new Map(), norm:new Map()};
@@ -3137,6 +3139,7 @@ function runFixedRules(){
   unclassed.forEach(r=>{
     const m=rules.find(ru=>r.desc?.includes(ru.keyword));
     if(m){proposals.push({row:r,src:'rule',basis:`규칙: ${m.keyword}`,checked:true,cands:[{cat1:m.cat1,cat2:m.cat2||'',cat3:m.cat3||'',cat4:m.cat4||''}]});return;}
+    if(_isPersonDeposit(r))return;
     const h=suggestFromHist(st,cid,r);
     if(h)proposals.push({row:r,src:h.confident?'hist':'cand',basis:h.basis,checked:h.confident,cands:h.cands});
   });
@@ -3161,7 +3164,7 @@ function showFixedRulesPreview(proposals){
   html+='<h3 style="margin:0;font-size:15px;">📋 규칙·이력 분류 검토 ('+proposals.length+'건)</h3>';
   html+='<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="_frChkAll"> 전체선택</label>';
   html+='</div>';
-  html+=`<div style="font-size:11px;color:#666;line-height:1.6;flex-shrink:0">규칙 ${cnt.rule}건 · 이력 ${cnt.hist}건(과거 ${HIST_MIN_N}건 이상·${Math.round(HIST_MIN_RATIO*100)}% 일치) · 후보 ${cnt.cand}건(분류가 갈리거나 이력이 적음 — 확인 후 체크)<br>고정규칙이 이력보다 우선합니다. 소분류·소속은 이력이 일관될 때만 채웁니다.</div>`;
+  html+=`<div style="font-size:11px;color:#666;line-height:1.6;flex-shrink:0">규칙 ${cnt.rule}건 · 이력 ${cnt.hist}건(과거 ${HIST_MIN_N}건 이상·${Math.round(HIST_MIN_RATIO*100)}% 일치) · 후보 ${cnt.cand}건(분류가 갈리거나 이력이 적음 — 확인 후 체크)<br>고정규칙이 이력보다 우선합니다. 소분류·소속은 이력이 일관될 때만 채웁니다. 사람 이름 입금(한글 2~4자)은 이력 제안에서 빠지니 일괄등록으로 처리하세요.</div>`;
   html+='<div style="overflow-y:auto;flex:1;border:1px solid #e5e5e5;border-radius:6px;">';
   html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
   html+='<thead><tr>';
