@@ -3984,7 +3984,6 @@ function fcPeriodChange(){
 function fcPreset(kind){
   const cy=new Date().getFullYear();
   if(kind==='year') setFcPeriod({y:cy,m:1},{y:cy,m:12});
-  else if(kind==='next') setFcPeriod({y:cy,m:1},{y:cy+1,m:3});
 }
 
 function ensureForecast(cid, year){
@@ -5015,7 +5014,7 @@ function renderForecast(){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <span style="font-size:12px;color:#888">기간</span>
       ${ymSel('fcFrom',first)}<span style="color:#aaa">~</span>${ymSel('fcTo',last)}
-      ${pbtn('year',`올해(${String(cy).slice(2)}년)`)}${pbtn('next',`${String(cy).slice(2)}.01~${String(cy+1).slice(2)}.03`)}
+      ${pbtn('year',`올해(${String(cy).slice(2)}년)`)}
       ${chainNote}
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
         <span style="font-size:12px;color:#888">실적 비교</span>
