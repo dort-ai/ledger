@@ -1718,7 +1718,8 @@ function commitEdit(silent=false){
     }
     if(ck==='cat3'&&val){
       if(!r.cat1){const c1=cat1FromCat2(r.companyId,r.cat2);if(c1){r.cat1=c1;const cat1CI=DC.findIndex(d=>d.k==='cat1');const cat1Td=getTd(editR,cat1CI);if(cat1Td)cat1Td.innerHTML=`<div class="cv locked">${c1}</div>`;}}
-      if(r.cat1){const c2=cat2FromCat3(r.companyId,r.cat1,val);if(c2)r.cat2=c2;}
+      // 중분류가 비어 있을 때만 자동 채움 — 같은 소분류명(기타·접대 등)이 여러 중분류에 있어 기존 값을 덮으면 엉뚱한 중분류로 바뀜
+      if(r.cat1&&!r.cat2){const c2=cat2FromCat3(r.companyId,r.cat1,val);if(c2){r.cat2=c2;const cat2Td=getTd(editR,DC.findIndex(d=>d.k==='cat2'));if(cat2Td)cat2Td.innerHTML=`<div class="cv">${c2}</div>`;}}
     }
     save([id], ck==='date' ? oldMonth : null);
     // 분할 자식 행 편집 시 부모 합계 갱신
@@ -1930,7 +1931,7 @@ function pasteRange(){
       if(_isMetaKey(v))return; // _order/_cat4 값이 잘못 복사된 경우 무시
       row[k]=v;
       if(k==='cat2'&&row[k]){const c1v=cat1FromCat2(row.companyId,row[k]);if(c1v)row.cat1=c1v;}
-      if(k==='cat3'&&row[k]&&row.cat1){const c2v=cat2FromCat3(row.companyId,row.cat1,row[k]);if(c2v)row.cat2=c2v;}
+      if(k==='cat3'&&row[k]&&row.cat1&&!row.cat2){const c2v=cat2FromCat3(row.companyId,row.cat1,row[k]);if(c2v)row.cat2=c2v;}
     });
   });
   save(); renderLedger();
@@ -1945,7 +1946,11 @@ function fillDown(){
     const srcVal=_rows[r1]?.[col.k]||'';
     for(let r=r1+1;r<=r2;r++){
       const row=ST.rows.find(x=>x.id===_rows[r]?.id);
-      if(row) row[col.k]=srcVal;
+      if(!row)continue;
+      row[col.k]=srcVal;
+      // 중분류를 채우면 대분류도 맞춤 (셀 편집·붙여넣기와 동일 규칙)
+      if(col.k==='cat2'&&srcVal){const c1v=cat1FromCat2(row.companyId,srcVal);if(c1v)row.cat1=c1v;}
+      if(col.k==='cat3'&&srcVal&&row.cat1&&!row.cat2){const c2v=cat2FromCat3(row.companyId,row.cat1,srcVal);if(c2v)row.cat2=c2v;}
     }
   }
   save(); renderLedger();
