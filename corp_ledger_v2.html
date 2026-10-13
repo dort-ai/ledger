@@ -4151,9 +4151,13 @@ function buildExitDelta(year, mode='plan'){
     const done=cat==='완료'||(['확정','진행중'].includes(cat)&&!!ym&&(ym.y*100+ym.m)<=cutoffNum);
     return {cat,ym,done};
   };
-  // 퇴거 룸 비율 계산용 총 룸수 = 연초 운영 기준(완료라도 올해 퇴거면 포함). 예측치가 이 룸수로 작성됐다는 가정.
+  // 퇴거 룸 비율 계산용 총 룸수 = 연초 운영 기준. 예측치가 이 룸수로 작성됐다는 가정.
+  // 퇴거월이 있으면 그 연도 이후 퇴거(올해 포함)만 연초 운영으로 봄 — 전년도 퇴거 예정 지점(아직 완료 처리 전)은
+  // 다음 해 추정을 '전년 말 운영 지점' 기준으로 쓰므로 제외. 퇴거월 없으면 완료가 아닌 지점만.
   const totalRooms=branches
-    .filter(b=>{ const i=exitInfo(b); return i.cat!=='완료'||(i.ym&&i.ym.y===Number(year)); })
+    .filter(b=>{ const i=exitInfo(b);
+      if(i.ym&&['확정','진행중','완료'].includes(i.cat)) return i.ym.y>=Number(year);
+      return i.cat!=='완료'; })
     .reduce((s,b)=>s+Number(b.rooms||0),0);
   // 계정과목에서 cat2 → 'cat1::cat2' 키 조회 (cat1 하드코딩 없이 동적 매칭)
   const _pnlItems=buildPnlItems(fcCid);
