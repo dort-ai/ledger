@@ -4219,26 +4219,30 @@ function getExitPnlDelta(month,year=_fcYear){
 
 // ── 플랫폼 목표 거래액 다이얼 ──
 // 추정치는 '기준 총 거래액'(직영·위탁 12억 + 플랫폼 20억 = 32억) 으로 작성돼 있다는 전제.
-// 다이얼로 목표를 올리면 기준 대비 늘어난 플랫폼 거래액(Δ)만큼 아래 항목을 덧씌워 보여줌(저장값은 그대로):
+// 다이얼을 움직이면 기준 대비 늘거나 줄어든 플랫폼 거래액(Δ, 음수 가능)만큼 아래 항목을 덧씌워 보여줌(저장값은 그대로):
 //   매출액::플랫폼 +Δ×수수료율÷1.1(공급가) / 판관비::지급수수료 −Δ×결제수수료율
 //   부가세 예수금 +Δ×수수료율×0.1÷1.1 / 선수금 수취 +Δ×(1−수수료율) / 선수금 지급 −같은 금액을 '다음 달'에
 //   (게스트가 한 달 먼저 결제 → 호스트에겐 입주 월에 맞춰 정산. 12월 수취분은 다음 해 1월 지급)
-// 월별 모양: 계단식(봄·가을 입주 시즌에 오름). 기준 20억 모양과 33억(목표 45억) 모양 사이를 선형 보간.
-const PLAT_MIN=32, PLAT_MAX=45, PLAT_BASE_OTHER=12; // 억원 (총 거래액 / 직영·위탁 몫)
-const PLAT_SHAPE_MIN=[5000,7000,9500,10700,11300,10700,9500,19700,28600,29800,30400,27800];   // 만원, 플랫폼 20억
-const PLAT_SHAPE_MAX=[5000,9000,16000,18100,19100,18100,16000,33100,48100,50200,51200,46100]; // 만원, 플랫폼 33억
-let _fcPlat={year:new Date().getFullYear()+1,total:PLAT_MIN,fee:10,pay:4.4};
+// 월별 모양: 계단식(봄·가을 입주 시즌에 오름). 세 모양 사이를 구간별 선형 보간:
+//   18억(플랫폼 6억 = 지금 수준에서 성장 정체) ↔ 32억(기준, 플랫폼 20억) ↔ 45억(목표, 플랫폼 33억)
+const PLAT_LOW=18, PLAT_BASE=32, PLAT_MAX=45, PLAT_BASE_OTHER=12; // 억원 (총 거래액 / 직영·위탁 몫)
+const PLAT_SHAPE_LOW=[4400,4200,5000,5000,5000,4800,4200,5200,5900,5900,5700,4700];            // 만원, 플랫폼 6억
+const PLAT_SHAPE_BASE=[5000,7000,9500,10700,11300,10700,9500,19700,28600,29800,30400,27800];   // 만원, 플랫폼 20억
+const PLAT_SHAPE_MAX=[5000,9000,16000,18100,19100,18100,16000,33100,48100,50200,51200,46100];  // 만원, 플랫폼 33억
+let _fcPlat={year:new Date().getFullYear()+1,total:PLAT_BASE,fee:10,pay:4.4};
 try{ const s=JSON.parse(localStorage.getItem('fc_plat')||'null'); if(s) _fcPlat={..._fcPlat,...s}; }catch(e){}
 function fcPlatSave(){ try{ localStorage.setItem('fc_plat',JSON.stringify(_fcPlat)); }catch(e){} }
-// 기준 대비 늘어난 플랫폼 거래액(원), month 1~12
+// 기준 대비 플랫폼 거래액 증감(원, 음수 가능), month 1~12
 function platExtraAt(month){
-  const t=Math.max(0,Math.min(1,(Number(_fcPlat.total)-PLAT_MIN)/(PLAT_MAX-PLAT_MIN)));
-  return Math.round(t*(PLAT_SHAPE_MAX[month-1]-PLAT_SHAPE_MIN[month-1])*10000);
+  const T=Math.max(PLAT_LOW,Math.min(PLAT_MAX,Number(_fcPlat.total)||PLAT_BASE)), i=month-1;
+  const to=T>=PLAT_BASE?PLAT_SHAPE_MAX:PLAT_SHAPE_LOW, end=T>=PLAT_BASE?PLAT_MAX:PLAT_LOW;
+  const t=(T-PLAT_BASE)/(end-PLAT_BASE);
+  return Math.round(t*(to[i]-PLAT_SHAPE_BASE[i])*10000);
 }
 function buildPlatDelta(year){
   const d={pnl:{},cash:{}};
   const py=Number(_fcPlat.year), y=Number(year);
-  if((y!==py&&y!==py+1)||Number(_fcPlat.total)<=PLAT_MIN) return d;
+  if((y!==py&&y!==py+1)||Number(_fcPlat.total)===PLAT_BASE) return d;
   const homesId=homesCoId();
   if(homesId && curCo && curCo!=='__all__' && curCo!==homesId) return d; // 퇴거 델타와 같은 규칙: 홈스 전용
   const fee=(Number(_fcPlat.fee)||0)/100, pay=(Number(_fcPlat.pay)||0)/100;
@@ -4258,18 +4262,18 @@ function fcPlatSet(k,v){ _fcPlat[k]=v; fcPlatSave(); renderForecast(); }
 function renderPlatDial(cid){
   const homesId=homesCoId();
   if(homesId && cid!=='__all__' && cid!==homesId) return '';
-  const tot=Number(_fcPlat.total), extra=tot-PLAT_MIN;
+  const tot=Number(_fcPlat.total), extra=tot-PLAT_BASE;
   const yr=Number(_fcPlat.year), cy=new Date().getFullYear();
-  const on=extra>0;
-  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:${on?'#fff7e6':'#fafaf8'};border:1px solid ${on?'#f5c26b':'#e8e8e2'}">
+  const on=extra!==0, down=extra<0;
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:${down?'#fdecec':on?'#fff7e6':'#fafaf8'};border:1px solid ${down?'#f0a8a8':on?'#f5c26b':'#e8e8e2'}">
     <span style="font-size:12px;font-weight:700;color:#8a5a00">🎯 목표 거래액</span>
     <select onchange="fcPlatSet('year',+this.value)" style="padding:2px 6px;border:1px solid #ccc;border-radius:5px;font-size:11px">${[cy,cy+1].map(y=>`<option value="${y}" ${y===yr?'selected':''}>${String(y).slice(2)}년</option>`).join('')}</select>
-    <input type="range" min="${PLAT_MIN}" max="${PLAT_MAX}" step="1" value="${tot}" style="width:200px;accent-color:#d48806"
-      oninput="document.getElementById('fcPlatLbl').textContent=this.value+'억 (플랫폼 '+(this.value-${PLAT_BASE_OTHER})+'억)'" onchange="fcPlatSet('total',+this.value)">
+    <span style="font-size:10px;color:#b55">${PLAT_LOW}억</span><input type="range" min="${PLAT_LOW}" max="${PLAT_MAX}" step="1" value="${tot}" list="fcPlatTicks" style="width:240px;accent-color:${down?'#c0392b':'#d48806'}"
+      oninput="document.getElementById('fcPlatLbl').textContent=this.value+'억 (플랫폼 '+(this.value-${PLAT_BASE_OTHER})+'억)'" onchange="fcPlatSet('total',+this.value)"><datalist id="fcPlatTicks"><option value="${PLAT_BASE}"></option></datalist><span style="font-size:10px;color:#8a5a00">${PLAT_MAX}억</span>
     <b id="fcPlatLbl" style="font-size:13px;color:#8a5a00;min-width:120px">${tot}억 (플랫폼 ${tot-PLAT_BASE_OTHER}억)</b>
     <span style="font-size:11px;color:#888">수수료</span><input type="number" step="0.5" value="${_fcPlat.fee}" onchange="fcPlatSet('fee',+this.value)" style="width:48px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;font-size:11px"><span style="font-size:11px;color:#888">%</span>
     <span style="font-size:11px;color:#888">결제수수료</span><input type="number" step="0.1" value="${_fcPlat.pay}" onchange="fcPlatSet('pay',+this.value)" style="width:48px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;font-size:11px"><span style="font-size:11px;color:#888">%</span>
-    <span style="font-size:11px;color:${on?'#8a5a00':'#999'}">${on?`기준 ${PLAT_MIN}억 대비 플랫폼 +${extra}억 반영 중 (플랫폼 매출·지급수수료·부가세 예수금·선수금)`:`기준 ${PLAT_MIN}억 = 입력한 추정치 그대로`}</span>
+    <span style="font-size:11px;color:${down?'#c0392b':on?'#8a5a00':'#999'}">${on?`기준 ${PLAT_BASE}억 대비 플랫폼 ${extra>0?'+':''}${extra}억 반영 중 (플랫폼 매출·지급수수료·부가세 예수금·선수금)`:`기준 ${PLAT_BASE}억 = 입력한 추정치 그대로`}</span>
   </div>`;
 }
 
