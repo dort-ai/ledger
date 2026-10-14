@@ -3946,12 +3946,12 @@ let _fcExitApplied = false;
 let _fcDeltas = {};
 function fcBuildDeltas(years){
   _fcDeltas={};
-  years.forEach(y=>{ _fcDeltas[Number(y)]={done:buildExitDelta(y,'done'),plan:buildExitDelta(y)}; });
+  years.forEach(y=>{ _fcDeltas[Number(y)]={done:buildExitDelta(y,'done'),plan:buildExitDelta(y),plat:buildPlatDelta(y)}; });
 }
 // 두 델타 합산 조회. 토글 OFF면 완료분만.
 function fcDeltaAt(section,k,month,year=_fcYear){
   const d=_fcDeltas[Number(year)]; if(!d) return 0;
-  return (d.done[section]?.[k]?.[month]||0)+(_fcExitApplied?(d.plan[section]?.[k]?.[month]||0):0);
+  return (d.done[section]?.[k]?.[month]||0)+(_fcExitApplied?(d.plan[section]?.[k]?.[month]||0):0)+(d.plat?.[section]?.[k]?.[month]||0);
 }
 
 // ── 조회 기간 (연도를 넘어 이어보기) ──
@@ -4214,7 +4214,60 @@ function buildExitDelta(year, mode='plan'){
 function getExitPnlDelta(month,year=_fcYear){
   const d=_fcDeltas[Number(year)]; if(!d) return 0;
   const sum=o=>Object.values(o||{}).reduce((s,mobj)=>s+(mobj[month]||0),0);
-  return sum(d.done.pnl)+(_fcExitApplied?sum(d.plan.pnl):0);
+  return sum(d.done.pnl)+(_fcExitApplied?sum(d.plan.pnl):0)+sum(d.plat?.pnl);
+}
+
+// ── 플랫폼 목표 거래액 다이얼 ──
+// 추정치는 '기준 총 거래액'(직영·위탁 12억 + 플랫폼 20억 = 32억) 으로 작성돼 있다는 전제.
+// 다이얼로 목표를 올리면 기준 대비 늘어난 플랫폼 거래액(Δ)만큼 아래 항목을 덧씌워 보여줌(저장값은 그대로):
+//   매출액::플랫폼 +Δ×수수료율÷1.1(공급가) / 판관비::지급수수료 −Δ×결제수수료율
+//   부가세 예수금 +Δ×수수료율×0.1÷1.1 / 선수금 수취 +Δ×(1−수수료율) / 선수금 지급 −같은 금액
+// 월별 모양: 계단식(봄·가을 입주 시즌에 오름). 기준 20억 모양과 33억(목표 45억) 모양 사이를 선형 보간.
+const PLAT_MIN=32, PLAT_MAX=45, PLAT_BASE_OTHER=12; // 억원 (총 거래액 / 직영·위탁 몫)
+const PLAT_SHAPE_MIN=[5000,7000,9500,10700,11300,10700,9500,19700,28600,29800,30400,27800];   // 만원, 플랫폼 20억
+const PLAT_SHAPE_MAX=[5000,9000,16000,18100,19100,18100,16000,33100,48100,50200,51200,46100]; // 만원, 플랫폼 33억
+let _fcPlat={year:new Date().getFullYear()+1,total:PLAT_MIN,fee:10,pay:4.4};
+try{ const s=JSON.parse(localStorage.getItem('fc_plat')||'null'); if(s) _fcPlat={..._fcPlat,...s}; }catch(e){}
+function fcPlatSave(){ try{ localStorage.setItem('fc_plat',JSON.stringify(_fcPlat)); }catch(e){} }
+// 기준 대비 늘어난 플랫폼 거래액(원), month 1~12
+function platExtraAt(month){
+  const t=Math.max(0,Math.min(1,(Number(_fcPlat.total)-PLAT_MIN)/(PLAT_MAX-PLAT_MIN)));
+  return Math.round(t*(PLAT_SHAPE_MAX[month-1]-PLAT_SHAPE_MIN[month-1])*10000);
+}
+function buildPlatDelta(year){
+  const d={pnl:{},cash:{}};
+  if(Number(year)!==Number(_fcPlat.year)||Number(_fcPlat.total)<=PLAT_MIN) return d;
+  const homesId=homesCoId();
+  if(homesId && curCo && curCo!=='__all__' && curCo!==homesId) return d; // 퇴거 델타와 같은 규칙: 홈스 전용
+  const fee=(Number(_fcPlat.fee)||0)/100, pay=(Number(_fcPlat.pay)||0)/100;
+  const add=(sec,key,m,amt)=>{ amt=Math.round(amt); if(!amt)return; if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; };
+  for(let m=1;m<=12;m++){
+    const g=platExtraAt(m); if(!g) continue;
+    add('pnl','매출액::플랫폼',m,g*fee/1.1);
+    add('pnl','판매비와관리비::지급수수료',m,-g*pay);
+    add('cash','cf::부가세 예수금',m,g*fee*0.1/1.1);
+    add('cash','cf::선수금 수취',m,g*(1-fee));
+    add('cash','cf::선수금 지급',m,-g*(1-fee));
+  }
+  return d;
+}
+function fcPlatSet(k,v){ _fcPlat[k]=v; fcPlatSave(); renderForecast(); }
+function renderPlatDial(cid){
+  const homesId=homesCoId();
+  if(homesId && cid!=='__all__' && cid!==homesId) return '';
+  const tot=Number(_fcPlat.total), extra=tot-PLAT_MIN;
+  const yr=Number(_fcPlat.year), cy=new Date().getFullYear();
+  const on=extra>0;
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:${on?'#fff7e6':'#fafaf8'};border:1px solid ${on?'#f5c26b':'#e8e8e2'}">
+    <span style="font-size:12px;font-weight:700;color:#8a5a00">🎯 목표 거래액</span>
+    <select onchange="fcPlatSet('year',+this.value)" style="padding:2px 6px;border:1px solid #ccc;border-radius:5px;font-size:11px">${[cy,cy+1].map(y=>`<option value="${y}" ${y===yr?'selected':''}>${String(y).slice(2)}년</option>`).join('')}</select>
+    <input type="range" min="${PLAT_MIN}" max="${PLAT_MAX}" step="1" value="${tot}" style="width:200px;accent-color:#d48806"
+      oninput="document.getElementById('fcPlatLbl').textContent=this.value+'억 (플랫폼 '+(this.value-${PLAT_BASE_OTHER})+'억)'" onchange="fcPlatSet('total',+this.value)">
+    <b id="fcPlatLbl" style="font-size:13px;color:#8a5a00;min-width:120px">${tot}억 (플랫폼 ${tot-PLAT_BASE_OTHER}억)</b>
+    <span style="font-size:11px;color:#888">수수료</span><input type="number" step="0.5" value="${_fcPlat.fee}" onchange="fcPlatSet('fee',+this.value)" style="width:48px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;font-size:11px"><span style="font-size:11px;color:#888">%</span>
+    <span style="font-size:11px;color:#888">결제수수료</span><input type="number" step="0.1" value="${_fcPlat.pay}" onchange="fcPlatSet('pay',+this.value)" style="width:48px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;font-size:11px"><span style="font-size:11px;color:#888">%</span>
+    <span style="font-size:11px;color:${on?'#8a5a00':'#999'}">${on?`기준 ${PLAT_MIN}억 대비 플랫폼 +${extra}억 반영 중 (플랫폼 매출·지급수수료·부가세 예수금·선수금)`:`기준 ${PLAT_MIN}억 = 입력한 추정치 그대로`}</span>
+  </div>`;
 }
 
 function toggleFcExit(){
@@ -5030,6 +5083,7 @@ function renderForecast(){
       </div>
     </div>
     ${renderFcBalanceChart(cid,cols)}
+    ${renderPlatDial(cid)}
     <div style="display:grid;grid-template-columns:repeat(${rentCard?4:3},1fr);gap:10px;margin-bottom:16px">
       ${rentCard}
       <div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08)"><div style="font-size:11px;color:#888;margin-bottom:5px">${fullYear?'연간':'기간'} 예상 매출${fullYear?'':` <span style="color:#bbb">(${periodLbl})</span>`}</div><div style="font-size:18px;font-weight:700;color:#1a3a7a">${fmtB(totalRev)}</div></div>
