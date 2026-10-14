@@ -4221,7 +4221,8 @@ function getExitPnlDelta(month,year=_fcYear){
 // 추정치는 '기준 총 거래액'(직영·위탁 12억 + 플랫폼 20억 = 32억) 으로 작성돼 있다는 전제.
 // 다이얼로 목표를 올리면 기준 대비 늘어난 플랫폼 거래액(Δ)만큼 아래 항목을 덧씌워 보여줌(저장값은 그대로):
 //   매출액::플랫폼 +Δ×수수료율÷1.1(공급가) / 판관비::지급수수료 −Δ×결제수수료율
-//   부가세 예수금 +Δ×수수료율×0.1÷1.1 / 선수금 수취 +Δ×(1−수수료율) / 선수금 지급 −같은 금액
+//   부가세 예수금 +Δ×수수료율×0.1÷1.1 / 선수금 수취 +Δ×(1−수수료율) / 선수금 지급 −같은 금액을 '다음 달'에
+//   (게스트가 한 달 먼저 결제 → 호스트에겐 입주 월에 맞춰 정산. 12월 수취분은 다음 해 1월 지급)
 // 월별 모양: 계단식(봄·가을 입주 시즌에 오름). 기준 20억 모양과 33억(목표 45억) 모양 사이를 선형 보간.
 const PLAT_MIN=32, PLAT_MAX=45, PLAT_BASE_OTHER=12; // 억원 (총 거래액 / 직영·위탁 몫)
 const PLAT_SHAPE_MIN=[5000,7000,9500,10700,11300,10700,9500,19700,28600,29800,30400,27800];   // 만원, 플랫폼 20억
@@ -4236,18 +4237,20 @@ function platExtraAt(month){
 }
 function buildPlatDelta(year){
   const d={pnl:{},cash:{}};
-  if(Number(year)!==Number(_fcPlat.year)||Number(_fcPlat.total)<=PLAT_MIN) return d;
+  const py=Number(_fcPlat.year), y=Number(year);
+  if((y!==py&&y!==py+1)||Number(_fcPlat.total)<=PLAT_MIN) return d;
   const homesId=homesCoId();
   if(homesId && curCo && curCo!=='__all__' && curCo!==homesId) return d; // 퇴거 델타와 같은 규칙: 홈스 전용
   const fee=(Number(_fcPlat.fee)||0)/100, pay=(Number(_fcPlat.pay)||0)/100;
   const add=(sec,key,m,amt)=>{ amt=Math.round(amt); if(!amt)return; if(!d[sec][key])d[sec][key]={}; d[sec][key][m]=(d[sec][key][m]||0)+amt; };
+  if(y===py+1){ add('cash','cf::선수금 지급',1,-platExtraAt(12)*(1-fee)); return d; } // 전년 12월 수취분 정산
   for(let m=1;m<=12;m++){
     const g=platExtraAt(m); if(!g) continue;
     add('pnl','매출액::플랫폼',m,g*fee/1.1);
     add('pnl','판매비와관리비::지급수수료',m,-g*pay);
     add('cash','cf::부가세 예수금',m,g*fee*0.1/1.1);
     add('cash','cf::선수금 수취',m,g*(1-fee));
-    add('cash','cf::선수금 지급',m,-g*(1-fee));
+    if(m<12) add('cash','cf::선수금 지급',m+1,-g*(1-fee));
   }
   return d;
 }
